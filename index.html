@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>Shadow Fighter</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Title Screen -->
+    <div id="title-screen">
+        <h1>SHADOW<br>FIGHTER</h1>
+        <p class="subtitle">2 Player Battle</p>
+        <button id="start-btn" class="menu-btn">FIGHT!</button>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="game-screen" class="hidden">
+        <!-- Player 2 HUD (top) -->
+        <div id="p2-hud" class="hud hud-top">
+            <div class="health-bar-container">
+                <div id="p2-health-bar" class="health-bar p2-color"></div>
+                <span class="health-label">P2</span>
+            </div>
+        </div>
+
+        <!-- Player 2 Controls (top, inverted) -->
+        <div id="p2-controls" class="controls controls-top">
+            <div class="controls-grid">
+                <div class="move-col">
+                    <button class="ctrl-btn move-btn" data-player="2" data-action="up">&#9650;</button>
+                    <button class="ctrl-btn move-btn" data-player="2" data-action="down">&#9660;</button>
+                </div>
+                <div class="action-col">
+                    <button class="ctrl-btn attack-btn" data-player="2" data-action="attack">ATK</button>
+                    <button class="ctrl-btn grapple-btn" data-player="2" data-action="grapple">GRAB</button>
+                    <button class="ctrl-btn dodge-btn" data-player="2" data-action="dodge">DODGE</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Game Canvas -->
+        <canvas id="game-canvas"></canvas>
+
+        <!-- Hit flash overlay -->
+        <div id="hit-flash"></div>
+
+        <!-- State announcement -->
+        <div id="announcement" class="hidden"></div>
+
+        <!-- Player 1 Controls (bottom) -->
+        <div id="p1-controls" class="controls controls-bottom">
+            <div class="controls-grid">
+                <div class="move-col">
+                    <button class="ctrl-btn move-btn" data-player="1" data-action="up">&#9650;</button>
+                    <button class="ctrl-btn move-btn" data-player="1" data-action="down">&#9660;</button>
+                </div>
+                <div class="action-col">
+                    <button class="ctrl-btn attack-btn" data-player="1" data-action="attack">ATK</button>
+                    <button class="ctrl-btn grapple-btn" data-player="1" data-action="grapple">GRAB</button>
+                    <button class="ctrl-btn dodge-btn" data-player="1" data-action="dodge">DODGE</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Player 1 HUD (bottom) -->
+        <div id="p1-hud" class="hud hud-bottom">
+            <div class="health-bar-container">
+                <span class="health-label">P1</span>
+                <div id="p1-health-bar" class="health-bar p1-color"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="gameover-screen" class="hidden">
+        <h1 id="winner-text">PLAYER 1 WINS!</h1>
+        <button id="rematch-btn" class="menu-btn">REMATCH</button>
+        <button id="menu-btn" class="menu-btn">MENU</button>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
