@@ -5,15 +5,51 @@
     <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
-    <title>Shadow Fighter</title>
+    <title>2 Player Combat</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <!-- Title Screen -->
     <div id="title-screen">
-        <h1>SHADOW<br>FIGHTER</h1>
+        <div class="title-bg"></div>
+        <h1>2 PLAYER<br>COMBAT</h1>
         <p class="subtitle">2 Player Battle</p>
-        <button id="start-btn" class="menu-btn">FIGHT!</button>
+        <p class="subtitle-small">Best of 3 Rounds</p>
+        <button id="start-btn" class="menu-btn">QUICK FIGHT</button>
+        <button id="customize-btn" class="menu-btn menu-btn-alt">CUSTOMIZE</button>
+    </div>
+
+    <!-- Customize Screen -->
+    <div id="customize-screen" class="hidden">
+        <h2 class="custom-title">CUSTOMIZE</h2>
+
+        <div class="custom-section">
+            <h3 class="custom-label">WORLD</h3>
+            <div class="world-row" id="world-row"></div>
+        </div>
+
+        <div class="custom-section">
+            <h3 class="custom-label player1-label">P1 OUTFITS</h3>
+            <div class="outfit-row">
+                <div class="outfit-slot" data-player="1" data-round="0"><span class="round-label">R1</span><span class="outfit-name" id="p1-outfit-0">Street</span></div>
+                <div class="outfit-slot" data-player="1" data-round="1"><span class="round-label">R2</span><span class="outfit-name" id="p1-outfit-1">Casual</span></div>
+                <div class="outfit-slot" data-player="1" data-round="2"><span class="round-label">R3</span><span class="outfit-name" id="p1-outfit-2">Ninja</span></div>
+            </div>
+        </div>
+
+        <div class="custom-section">
+            <h3 class="custom-label player2-label">P2 OUTFITS</h3>
+            <div class="outfit-row">
+                <div class="outfit-slot" data-player="2" data-round="0"><span class="round-label">R1</span><span class="outfit-name" id="p2-outfit-0">Street</span></div>
+                <div class="outfit-slot" data-player="2" data-round="1"><span class="round-label">R2</span><span class="outfit-name" id="p2-outfit-1">Casual</span></div>
+                <div class="outfit-slot" data-player="2" data-round="2"><span class="round-label">R3</span><span class="outfit-name" id="p2-outfit-2">Ninja</span></div>
+            </div>
+        </div>
+
+        <div class="custom-buttons">
+            <button id="custom-fight-btn" class="menu-btn">START FIGHT</button>
+            <button id="custom-back-btn" class="menu-btn menu-btn-small">BACK</button>
+        </div>
     </div>
 
     <!-- Game Screen -->
@@ -21,17 +57,22 @@
         <!-- Player 2 HUD (top) -->
         <div id="p2-hud" class="hud hud-top">
             <div class="health-bar-container">
+                <div class="fighter-portrait p2-portrait">P2</div>
                 <div id="p2-health-bar" class="health-bar p2-color"></div>
-                <span class="health-label">P2</span>
+                <div class="round-indicators" id="p2-rounds">
+                    <span class="round-dot"></span>
+                    <span class="round-dot"></span>
+                </div>
             </div>
         </div>
 
         <!-- Player 2 Controls (top, inverted) -->
         <div id="p2-controls" class="controls controls-top">
             <div class="controls-grid">
-                <div class="move-col">
-                    <button class="ctrl-btn move-btn" data-player="2" data-action="up">&#9650;</button>
-                    <button class="ctrl-btn move-btn" data-player="2" data-action="down">&#9660;</button>
+                <div class="joystick-col" id="p2-joystick-area">
+                    <div class="joystick-base" id="p2-joystick-base">
+                        <div class="joystick-knob" id="p2-joystick-knob"></div>
+                    </div>
                 </div>
                 <div class="action-col">
                     <button class="ctrl-btn attack-btn" data-player="2" data-action="attack">ATK</button>
@@ -44,18 +85,25 @@
         <!-- Game Canvas -->
         <canvas id="game-canvas"></canvas>
 
+        <!-- Exit button -->
+        <button id="exit-fight-btn" class="exit-btn">✕</button>
+
         <!-- Hit flash overlay -->
         <div id="hit-flash"></div>
 
         <!-- State announcement -->
-        <div id="announcement" class="hidden"></div>
+        <div id="announcement" class="hidden">
+            <div class="announce-bg"></div>
+            <span class="announce-text"></span>
+        </div>
 
         <!-- Player 1 Controls (bottom) -->
         <div id="p1-controls" class="controls controls-bottom">
             <div class="controls-grid">
-                <div class="move-col">
-                    <button class="ctrl-btn move-btn" data-player="1" data-action="up">&#9650;</button>
-                    <button class="ctrl-btn move-btn" data-player="1" data-action="down">&#9660;</button>
+                <div class="joystick-col" id="p1-joystick-area">
+                    <div class="joystick-base" id="p1-joystick-base">
+                        <div class="joystick-knob" id="p1-joystick-knob"></div>
+                    </div>
                 </div>
                 <div class="action-col">
                     <button class="ctrl-btn attack-btn" data-player="1" data-action="attack">ATK</button>
@@ -68,8 +116,12 @@
         <!-- Player 1 HUD (bottom) -->
         <div id="p1-hud" class="hud hud-bottom">
             <div class="health-bar-container">
-                <span class="health-label">P1</span>
+                <div class="fighter-portrait p1-portrait">P1</div>
                 <div id="p1-health-bar" class="health-bar p1-color"></div>
+                <div class="round-indicators" id="p1-rounds">
+                    <span class="round-dot"></span>
+                    <span class="round-dot"></span>
+                </div>
             </div>
         </div>
     </div>
