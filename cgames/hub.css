@@ -173,7 +173,7 @@ html.hub-page, html.hub-page body {
 }
 
 .card-info {
-    padding: 10px 12px;
+    padding: 10px 12px 4px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -204,6 +204,14 @@ html.hub-page, html.hub-page body {
     background: rgba(37, 99, 235, 0.1);
 }
 
+.card-desc {
+    padding: 0 12px 10px;
+    margin: 0;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--text-muted);
+}
+
 /* Scrollbar */
 .hub-main::-webkit-scrollbar { width: 6px; }
 .hub-main::-webkit-scrollbar-track { background: transparent; }
@@ -225,6 +233,7 @@ html.hub-page, html.hub-page body {
     .logo-games { font-size: 1.3rem; letter-spacing: 2px; }
     .card-name { font-size: 0.8rem; }
     .card-tag { font-size: 0.6rem; }
+    .card-desc { font-size: 0.65rem; padding: 0 8px 8px; }
 }
 
 @media (min-width: 900px) {
