@@ -347,6 +347,74 @@
                 ctx.fillText('♔', 63, 70);
                 ctx.fillText('♕', 43, 70);
                 break;
+
+            case 'shadow-fighter':
+                // Arena floor
+                ctx.fillStyle = fg + '15';
+                ctx.fillRect(0, h - 10, w, 10);
+                // P1 fighter (left, blue)
+                ctx.fillStyle = p1;
+                ctx.fillRect(28, h - 40, 10, 24); // body
+                ctx.beginPath();
+                ctx.arc(33, h - 46, 6, 0, Math.PI * 2); // head
+                ctx.fill();
+                // P1 arm (punching right)
+                ctx.fillRect(38, h - 38, 14, 4);
+                // P1 legs
+                ctx.fillRect(28, h - 16, 4, 8);
+                ctx.fillRect(34, h - 16, 4, 8);
+                // P2 fighter (right, red)
+                ctx.fillStyle = p2;
+                ctx.fillRect(80, h - 40, 10, 24); // body
+                ctx.beginPath();
+                ctx.arc(85, h - 46, 6, 0, Math.PI * 2); // head
+                ctx.fill();
+                // P2 arm (blocking)
+                ctx.fillRect(72, h - 40, 8, 4);
+                // P2 legs
+                ctx.fillRect(80, h - 16, 4, 8);
+                ctx.fillRect(86, h - 16, 4, 8);
+                // Impact spark
+                ctx.fillStyle = accent;
+                ctx.beginPath();
+                ctx.arc(55, h - 35, 3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = accent + '40';
+                ctx.beginPath();
+                ctx.arc(55, h - 35, 6, 0, Math.PI * 2);
+                ctx.fill();
+                break;
+
+            case 'tag':
+                // Play area
+                ctx.strokeStyle = fg + '25';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(10, 10, w - 20, h - 20);
+                // P1 (chaser, "IT")
+                ctx.fillStyle = p2;
+                ctx.beginPath();
+                ctx.arc(35, h / 2, 8, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 7px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('IT', 35, h / 2 + 3);
+                ctx.textAlign = 'start';
+                // P2 (runner)
+                ctx.fillStyle = p1;
+                ctx.beginPath();
+                ctx.arc(85, h / 2 - 10, 8, 0, Math.PI * 2);
+                ctx.fill();
+                // Motion trail for runner
+                ctx.fillStyle = p1 + '30';
+                ctx.beginPath();
+                ctx.arc(78, h / 2 - 8, 6, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = p1 + '15';
+                ctx.beginPath();
+                ctx.arc(72, h / 2 - 5, 5, 0, Math.PI * 2);
+                ctx.fill();
+                break;
         }
     }
 })();
