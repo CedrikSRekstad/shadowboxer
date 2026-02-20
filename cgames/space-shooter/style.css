@@ -1,0 +1,211 @@
+/* === Space Shooter Styles === */
+
+/* Title Screen */
+.title-logo {
+    text-align: center;
+    margin-bottom: 10px;
+}
+
+.title-logo h2 {
+    font-size: 2.2rem;
+    color: var(--accent);
+    text-shadow: 0 0 20px rgba(255, 221, 0, 0.3);
+    margin-bottom: 4px;
+}
+
+.title-sub {
+    color: var(--text-secondary);
+    font-size: 1rem;
+}
+
+.title-ship {
+    width: 0;
+    height: 0;
+    border-left: 24px solid transparent;
+    border-right: 24px solid transparent;
+    border-bottom: 40px solid var(--p1-color);
+    margin: 0 auto 16px;
+    filter: drop-shadow(0 0 10px var(--p1-color));
+    animation: titleFloat 2s ease-in-out infinite;
+}
+
+@keyframes titleFloat {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+}
+
+.controls-hint {
+    margin-top: 16px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+body.touch-device .controls-hint {
+    display: none;
+}
+
+/* HUD */
+.hud-item {
+    font-size: 0.85rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.hud-wave {
+    color: var(--accent);
+}
+
+#hud-lives-1 {
+    color: var(--p1-color);
+}
+
+#hud-lives-2 {
+    color: var(--p2-color);
+}
+
+#hud-timer {
+    color: var(--accent-secondary);
+    font-weight: 700;
+}
+
+/* Canvas */
+#game-canvas {
+    background: var(--canvas-bg);
+    image-rendering: pixelated;
+}
+
+/* Touch Controls */
+.touch-controls {
+    justify-content: space-between;
+    align-items: flex-end;
+    padding: 10px 20px 20px;
+    pointer-events: none;
+}
+
+.touch-joystick {
+    pointer-events: auto;
+    touch-action: none;
+}
+
+.joystick-base {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    border: 2px solid rgba(255, 255, 255, 0.15);
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.joystick-knob {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.25);
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    position: absolute;
+    transition: none;
+}
+
+.touch-fire {
+    pointer-events: auto;
+    touch-action: none;
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: rgba(233, 69, 96, 0.5);
+    border: 3px solid rgba(233, 69, 96, 0.7);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.touch-fire:active, .touch-fire.active {
+    background: rgba(233, 69, 96, 0.8);
+    transform: scale(0.93);
+}
+
+/* Pause overlay */
+#pause-overlay .game-over-overlay h2 {
+    color: var(--text-primary);
+}
+
+/* Game Over */
+#gameover-scores {
+    text-align: center;
+    line-height: 1.8;
+}
+
+#gameover-scores .final-score {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--accent);
+}
+
+#gameover-scores .p1-final {
+    color: var(--p1-color);
+}
+
+#gameover-scores .p2-final {
+    color: var(--p2-color);
+}
+
+#gameover-scores .winner-text {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--accent);
+    margin-top: 4px;
+}
+
+/* Wave announcement */
+.wave-announce {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--accent);
+    text-shadow: 0 0 20px rgba(255, 221, 0, 0.5);
+    pointer-events: none;
+    z-index: 5;
+    animation: waveIn 1.5s ease-out forwards;
+}
+
+@keyframes waveIn {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(2); }
+    20% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    80% { opacity: 1; }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+    .title-logo h2 {
+        font-size: 1.6rem;
+    }
+
+    .joystick-base {
+        width: 100px;
+        height: 100px;
+    }
+
+    .joystick-knob {
+        width: 40px;
+        height: 40px;
+    }
+
+    .touch-fire {
+        width: 70px;
+        height: 70px;
+        font-size: 0.75rem;
+    }
+}

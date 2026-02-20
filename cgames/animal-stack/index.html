@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Animal Stack - Cgames</title>
+    <link rel="stylesheet" href="../shared/theme.css">
+    <link rel="stylesheet" href="../shared/game-shell.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- Title Screen -->
+    <div id="title-screen" class="screen active">
+        <div class="game-header">
+            <div class="game-header-left">
+                <button class="btn-icon shell-back" title="Back">&#8592;</button>
+            </div>
+            <div class="game-header-center">
+                <span class="game-title-bar">Animal Stack</span>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-theme-toggle" title="Toggle theme"></button>
+                <button class="btn-icon shell-sound-toggle" title="Toggle sound"></button>
+            </div>
+        </div>
+        <div class="mode-screen">
+            <div class="title-logo">
+                <div class="title-animals">
+                    <span class="title-animal a-bear"></span>
+                    <span class="title-animal a-cat"></span>
+                    <span class="title-animal a-frog"></span>
+                </div>
+                <h2>Animal Stack</h2>
+                <p class="title-subtitle">Stack cute animals as high as you can!</p>
+            </div>
+            <div class="mode-buttons">
+                <button class="btn btn-primary" id="btn-1p">1 Player</button>
+                <button class="btn btn-secondary" id="btn-2p">2 Players</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Screen (1P) -->
+    <div id="game-screen" class="screen">
+        <div class="game-header">
+            <div class="game-header-left">
+                <button class="btn-icon" id="btn-back-game" title="Menu">&#8592;</button>
+            </div>
+            <div class="game-header-center">
+                <div class="hud-height">
+                    <span class="hud-label">Height</span>
+                    <span class="hud-value" id="hud-height">0</span>
+                </div>
+                <div class="hud-lives">
+                    <span class="hud-label">Lives</span>
+                    <span class="hud-value" id="hud-lives">3</span>
+                </div>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-theme-toggle" title="Toggle theme"></button>
+                <button class="btn-icon shell-sound-toggle" title="Toggle sound"></button>
+            </div>
+        </div>
+        <div class="canvas-container" id="canvas-container-1p">
+            <canvas id="game-canvas-1p"></canvas>
+        </div>
+    </div>
+
+    <!-- Game Screen (2P) -->
+    <div id="game-screen-2p" class="screen">
+        <div class="game-header">
+            <div class="game-header-left">
+                <button class="btn-icon" id="btn-back-game-2p" title="Menu">&#8592;</button>
+            </div>
+            <div class="game-header-center">
+                <div class="score-hud">
+                    <span class="p1-score" id="hud-height-p1">0</span>
+                    <span class="separator">-</span>
+                    <span class="p2-score" id="hud-height-p2">0</span>
+                </div>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-theme-toggle" title="Toggle theme"></button>
+                <button class="btn-icon shell-sound-toggle" title="Toggle sound"></button>
+            </div>
+        </div>
+        <div class="canvas-container" id="canvas-container-2p">
+            <canvas id="game-canvas-2p"></canvas>
+        </div>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="gameover-screen" class="screen">
+        <div class="game-header">
+            <div class="game-header-left"></div>
+            <div class="game-header-center">
+                <span class="game-title-bar">Game Over</span>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-theme-toggle" title="Toggle theme"></button>
+                <button class="btn-icon shell-sound-toggle" title="Toggle sound"></button>
+            </div>
+        </div>
+        <div class="gameover-content">
+            <div class="gameover-title" id="gameover-title">Game Over</div>
+            <div class="gameover-stats" id="gameover-stats">
+                <div class="stat-row">
+                    <span class="stat-label">Tower Height</span>
+                    <span class="stat-value" id="go-height">0</span>
+                </div>
+            </div>
+            <div class="gameover-stats hidden" id="go-2p-stats">
+                <div class="stat-row">
+                    <span class="stat-label p1-label">P1 Height</span>
+                    <span class="stat-value" id="go-p1-height">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label p2-label">P2 Height</span>
+                    <span class="stat-value" id="go-p2-height">0</span>
+                </div>
+            </div>
+            <div class="gameover-buttons">
+                <button class="btn btn-primary" id="btn-play-again">Play Again</button>
+                <button class="btn btn-secondary" id="btn-go-menu">Menu</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+    <script src="../shared/audio.js"></script>
+    <script src="../shared/game-shell.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>

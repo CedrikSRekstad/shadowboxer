@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Chess - Cgames</title>
+    <link rel="stylesheet" href="../shared/theme.css">
+    <link rel="stylesheet" href="../shared/game-shell.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- Title Screen -->
+    <div id="title-screen" class="screen active">
+        <div class="game-header">
+            <div class="game-header-left">
+                <button class="btn-icon shell-back" title="Back">&#8592;</button>
+            </div>
+            <div class="game-header-center">
+                <span class="game-title-bar">Chess</span>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-theme-toggle" title="Toggle theme"></button>
+                <button class="btn-icon shell-sound-toggle" title="Toggle sound"></button>
+            </div>
+        </div>
+        <div class="mode-screen">
+            <div class="title-logo">
+                <span class="title-piece">&#9812;</span>
+                <span class="title-piece">&#9818;</span>
+            </div>
+            <p class="title-subtitle">The classic game of strategy</p>
+            <div class="mode-buttons">
+                <button class="btn btn-primary" id="btn-1p">1 Player vs AI</button>
+                <button class="btn btn-secondary" id="btn-2p">2 Player Local</button>
+            </div>
+            <div class="difficulty-select hidden" id="difficulty-select">
+                <p class="diff-label">AI Difficulty</p>
+                <div class="mode-buttons">
+                    <button class="btn btn-primary btn-diff" data-diff="easy">Easy</button>
+                    <button class="btn btn-accent btn-diff" data-diff="medium">Medium</button>
+                    <button class="btn btn-secondary btn-diff" data-diff="hard">Hard</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="game-screen" class="screen">
+        <div class="game-header">
+            <div class="game-header-left">
+                <button class="btn-icon" id="btn-back-game" title="Menu">&#8592;</button>
+            </div>
+            <div class="game-header-center">
+                <span class="turn-indicator" id="turn-indicator">White's Turn</span>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon" id="btn-restart" title="Restart">&#8635;</button>
+                <button class="btn-icon shell-theme-toggle" title="Toggle theme"></button>
+                <button class="btn-icon shell-sound-toggle" title="Toggle sound"></button>
+            </div>
+        </div>
+        <div class="game-area">
+            <div class="game-layout">
+                <div class="side-panel left-panel">
+                    <div class="captured-pieces" id="captured-black">
+                        <div class="captured-label">Captured by White</div>
+                        <div class="captured-list" id="captured-black-list"></div>
+                    </div>
+                </div>
+                <div class="board-wrapper">
+                    <div class="board-container">
+                        <div class="rank-labels" id="rank-labels"></div>
+                        <div class="chess-board" id="chess-board"></div>
+                        <div class="file-labels" id="file-labels"></div>
+                    </div>
+                </div>
+                <div class="side-panel right-panel">
+                    <div class="captured-pieces" id="captured-white">
+                        <div class="captured-label">Captured by Black</div>
+                        <div class="captured-list" id="captured-white-list"></div>
+                    </div>
+                    <div class="move-history-panel">
+                        <div class="history-label">Moves</div>
+                        <div class="history-list" id="move-history"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Promotion Modal -->
+    <div class="promotion-modal hidden" id="promotion-modal">
+        <div class="promotion-overlay"></div>
+        <div class="promotion-dialog">
+            <p class="promotion-title">Promote Pawn</p>
+            <div class="promotion-pieces" id="promotion-pieces"></div>
+        </div>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="gameover-screen" class="screen">
+        <div class="game-header">
+            <div class="game-header-left"></div>
+            <div class="game-header-center">
+                <span class="game-title-bar">Game Over</span>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-theme-toggle" title="Toggle theme"></button>
+                <button class="btn-icon shell-sound-toggle" title="Toggle sound"></button>
+            </div>
+        </div>
+        <div class="gameover-content">
+            <div class="gameover-icon" id="gameover-icon"></div>
+            <div class="gameover-title" id="gameover-title">Checkmate!</div>
+            <div class="gameover-sub" id="gameover-sub">White wins</div>
+            <div class="gameover-buttons">
+                <button class="btn btn-primary" id="btn-play-again">Play Again</button>
+                <button class="btn btn-secondary" id="btn-go-menu">Menu</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+    <script src="../shared/audio.js"></script>
+    <script src="../shared/game-shell.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cgames</title>
+    <link rel="stylesheet" href="shared/theme.css">
+    <link rel="stylesheet" href="hub.css">
+</head>
+<body>
+    <div class="hub-bg">
+        <div class="particle" style="--x:10%;--y:20%;--d:6s;--del:0s"></div>
+        <div class="particle" style="--x:25%;--y:70%;--d:8s;--del:1s"></div>
+        <div class="particle" style="--x:50%;--y:15%;--d:7s;--del:2s"></div>
+        <div class="particle" style="--x:70%;--y:60%;--d:5s;--del:0.5s"></div>
+        <div class="particle" style="--x:85%;--y:30%;--d:9s;--del:3s"></div>
+        <div class="particle" style="--x:40%;--y:85%;--d:6s;--del:1.5s"></div>
+        <div class="particle" style="--x:60%;--y:45%;--d:7s;--del:2.5s"></div>
+        <div class="particle" style="--x:15%;--y:50%;--d:8s;--del:0.8s"></div>
+    </div>
+
+    <header class="hub-header">
+        <div class="hub-logo">
+            <span class="logo-c">C</span><span class="logo-games">GAMES</span>
+        </div>
+        <div class="hub-controls">
+            <button class="btn-icon shell-theme-toggle" title="Toggle theme">&#9789;</button>
+            <button class="btn-icon shell-sound-toggle" title="Toggle sound">&#9834;</button>
+        </div>
+    </header>
+
+    <main class="hub-main">
+        <div class="game-grid" id="game-grid">
+            <a href="ping-pong/" class="game-card" data-game="ping-pong">
+                <div class="card-preview">
+                    <canvas class="preview-canvas" width="120" height="80" data-game="ping-pong"></canvas>
+                </div>
+                <div class="card-info">
+                    <span class="card-name">Ping Pong</span>
+                    <span class="card-tag">Classic</span>
+                </div>
+            </a>
+            <a href="air-hockey/" class="game-card" data-game="air-hockey">
+                <div class="card-preview">
+                    <canvas class="preview-canvas" width="120" height="80" data-game="air-hockey"></canvas>
+                </div>
+                <div class="card-info">
+                    <span class="card-name">Air Hockey</span>
+                    <span class="card-tag">Arcade</span>
+                </div>
+            </a>
+            <a href="memory/" class="game-card" data-game="memory">
+                <div class="card-preview">
+                    <canvas class="preview-canvas" width="120" height="80" data-game="memory"></canvas>
+                </div>
+                <div class="card-info">
+                    <span class="card-name">Memory</span>
+                    <span class="card-tag">Puzzle</span>
+                </div>
+            </a>
+            <a href="2048/" class="game-card" data-game="2048">
+                <div class="card-preview">
+                    <canvas class="preview-canvas" width="120" height="80" data-game="2048"></canvas>
+                </div>
+                <div class="card-info">
+                    <span class="card-name">2048</span>
+                    <span class="card-tag">Puzzle</span>
+                </div>
+            </a>
+            <a href="wordle/" class="game-card" data-game="wordle">
+                <div class="card-preview">
+                    <canvas class="preview-canvas" width="120" height="80" data-game="wordle"></canvas>
+                </div>
+                <div class="card-info">
+                    <span class="card-name">Wordle</span>
+                    <span class="card-tag">Word</span>
+                </div>
+            </a>
+            <a href="space-shooter/" class="game-card" data-game="space-shooter">
+                <div class="card-preview">
+                    <canvas class="preview-canvas" width="120" height="80" data-game="space-shooter"></canvas>
+                </div>
+                <div class="card-info">
+                    <span class="card-name">Space Shooter</span>
+                    <span class="card-tag">Action</span>
+                </div>
+            </a>
+            <a href="brickblast/" class="game-card" data-game="brickblast">
+                <div class="card-preview">
+                    <canvas class="preview-canvas" width="120" height="80" data-game="brickblast"></canvas>
+                </div>
+                <div class="card-info">
+                    <span class="card-name">BrickBlast</span>
+                    <span class="card-tag">Arcade</span>
+                </div>
+            </a>
+            <a href="gravity-run/" class="game-card" data-game="gravity-run">
+                <div class="card-preview">
+                    <canvas class="preview-canvas" width="120" height="80" data-game="gravity-run"></canvas>
+                </div>
+                <div class="card-info">
+                    <span class="card-name">Gravity Run</span>
+                    <span class="card-tag">Runner</span>
+                </div>
+            </a>
+            <a href="stampede/" class="game-card" data-game="stampede">
+                <div class="card-preview">
+                    <canvas class="preview-canvas" width="120" height="80" data-game="stampede"></canvas>
+                </div>
+                <div class="card-info">
+                    <span class="card-name">Stampede</span>
+                    <span class="card-tag">Action</span>
+                </div>
+            </a>
+            <a href="spin-wars/" class="game-card" data-game="spin-wars">
+                <div class="card-preview">
+                    <canvas class="preview-canvas" width="120" height="80" data-game="spin-wars"></canvas>
+                </div>
+                <div class="card-info">
+                    <span class="card-name">Spin Wars</span>
+                    <span class="card-tag">Battle</span>
+                </div>
+            </a>
+            <a href="animal-stack/" class="game-card" data-game="animal-stack">
+                <div class="card-preview">
+                    <canvas class="preview-canvas" width="120" height="80" data-game="animal-stack"></canvas>
+                </div>
+                <div class="card-info">
+                    <span class="card-name">Animal Stack</span>
+                    <span class="card-tag">Puzzle</span>
+                </div>
+            </a>
+            <a href="slot-cars/" class="game-card" data-game="slot-cars">
+                <div class="card-preview">
+                    <canvas class="preview-canvas" width="120" height="80" data-game="slot-cars"></canvas>
+                </div>
+                <div class="card-info">
+                    <span class="card-name">Slot Cars</span>
+                    <span class="card-tag">Racing</span>
+                </div>
+            </a>
+            <a href="crash-it/" class="game-card" data-game="crash-it">
+                <div class="card-preview">
+                    <canvas class="preview-canvas" width="120" height="80" data-game="crash-it"></canvas>
+                </div>
+                <div class="card-info">
+                    <span class="card-name">Crash It</span>
+                    <span class="card-tag">Action</span>
+                </div>
+            </a>
+            <a href="canon-duel/" class="game-card" data-game="canon-duel">
+                <div class="card-preview">
+                    <canvas class="preview-canvas" width="120" height="80" data-game="canon-duel"></canvas>
+                </div>
+                <div class="card-info">
+                    <span class="card-name">Canon Duel</span>
+                    <span class="card-tag">Strategy</span>
+                </div>
+            </a>
+            <a href="dart/" class="game-card" data-game="dart">
+                <div class="card-preview">
+                    <canvas class="preview-canvas" width="120" height="80" data-game="dart"></canvas>
+                </div>
+                <div class="card-info">
+                    <span class="card-name">Dart</span>
+                    <span class="card-tag">Skill</span>
+                </div>
+            </a>
+            <a href="chess/" class="game-card" data-game="chess">
+                <div class="card-preview">
+                    <canvas class="preview-canvas" width="120" height="80" data-game="chess"></canvas>
+                </div>
+                <div class="card-info">
+                    <span class="card-name">Chess</span>
+                    <span class="card-tag">Strategy</span>
+                </div>
+            </a>
+        </div>
+    </main>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="shared/audio.js"></script>
+    <script src="shared/game-shell.js"></script>
+    <script src="hub.js"></script>
+</body>
+</html>

@@ -1,0 +1,188 @@
+/* === Cgames Shared Theme === */
+
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+:root, [data-theme="dark"] {
+    --bg-primary: #0d0d1a;
+    --bg-secondary: #1a1a2e;
+    --bg-card: #16213e;
+    --bg-card-hover: #1c2a4a;
+    --text-primary: #ffffff;
+    --text-secondary: #a0a0b0;
+    --text-muted: #666680;
+    --accent: #ffdd00;
+    --accent-hover: #ffe640;
+    --accent-secondary: #e94560;
+    --accent-tertiary: #00b4ff;
+    --btn-bg: #ffdd00;
+    --btn-text: #0d0d1a;
+    --btn-secondary-bg: #2a2a4a;
+    --btn-secondary-text: #ffffff;
+    --border-color: rgba(255, 255, 255, 0.1);
+    --border-radius: 10px;
+    --shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    --shadow-hover: 0 8px 30px rgba(0, 0, 0, 0.5);
+    --overlay: rgba(0, 0, 0, 0.7);
+    --success: #538d4e;
+    --warning: #b59f3b;
+    --danger: #e94560;
+    --canvas-bg: #0d0d1a;
+    --p1-color: #00b4ff;
+    --p1-light: #42d4ff;
+    --p2-color: #ff4466;
+    --p2-light: #ff7799;
+}
+
+[data-theme="light"] {
+    --bg-primary: #f0f2f5;
+    --bg-secondary: #e0e4ea;
+    --bg-card: #ffffff;
+    --bg-card-hover: #f8f8ff;
+    --text-primary: #1a1a2e;
+    --text-secondary: #555570;
+    --text-muted: #999;
+    --accent: #2563eb;
+    --accent-hover: #3b7cf5;
+    --accent-secondary: #e94560;
+    --accent-tertiary: #0088cc;
+    --btn-bg: #2563eb;
+    --btn-text: #ffffff;
+    --btn-secondary-bg: #e0e4ea;
+    --btn-secondary-text: #1a1a2e;
+    --border-color: rgba(0, 0, 0, 0.1);
+    --shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    --shadow-hover: 0 8px 30px rgba(0, 0, 0, 0.15);
+    --overlay: rgba(0, 0, 0, 0.4);
+    --success: #22c55e;
+    --warning: #eab308;
+    --danger: #ef4444;
+    --canvas-bg: #e8eaf0;
+    --p1-color: #2563eb;
+    --p1-light: #60a5fa;
+    --p2-color: #e94560;
+    --p2-light: #ff7799;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: manipulation;
+}
+
+.hidden { display: none !important; }
+
+.screen {
+    display: none;
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    flex-direction: column;
+    align-items: center;
+}
+.screen.active { display: flex; }
+
+/* === Buttons === */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px 28px;
+    border: none;
+    border-radius: var(--border-radius);
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+    text-decoration: none;
+}
+.btn:active { transform: scale(0.96); }
+
+.btn-primary {
+    background: var(--btn-bg);
+    color: var(--btn-text);
+    box-shadow: var(--shadow);
+}
+.btn-primary:hover { background: var(--accent-hover); box-shadow: var(--shadow-hover); }
+
+.btn-secondary {
+    background: var(--btn-secondary-bg);
+    color: var(--btn-secondary-text);
+}
+.btn-secondary:hover { background: var(--bg-card-hover); }
+
+.btn-accent {
+    background: var(--accent-secondary);
+    color: #fff;
+    box-shadow: var(--shadow);
+}
+.btn-accent:hover { opacity: 0.9; box-shadow: var(--shadow-hover); }
+
+.btn-small {
+    padding: 6px 14px;
+    font-size: 0.85rem;
+}
+
+.btn-icon {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1.4rem;
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 50%;
+    transition: color 0.2s, background 0.2s;
+    line-height: 1;
+}
+.btn-icon:hover { color: var(--text-primary); background: var(--border-color); }
+
+/* === Text Input === */
+.text-input {
+    padding: 10px 16px;
+    border: 2px solid var(--border-color);
+    border-radius: var(--border-radius);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 1rem;
+    outline: none;
+    transition: border-color 0.2s;
+}
+.text-input:focus { border-color: var(--accent); }
+
+/* === Utility === */
+.fade-in {
+    animation: fadeIn 0.3s ease forwards;
+}
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.toast {
+    position: fixed;
+    top: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--text-primary);
+    color: var(--bg-primary);
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    z-index: 1000;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+.toast.show { opacity: 1; }

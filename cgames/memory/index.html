@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Memory - Cgames</title>
+    <link rel="stylesheet" href="../shared/theme.css">
+    <link rel="stylesheet" href="../shared/game-shell.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- Title Screen -->
+    <div id="title-screen" class="screen active">
+        <div class="game-header">
+            <div class="game-header-left">
+                <button class="btn-icon shell-back" title="Back">&#8592;</button>
+            </div>
+            <div class="game-header-center">
+                <span class="game-title-bar">Memory</span>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-theme-toggle" title="Theme"></button>
+                <button class="btn-icon shell-sound-toggle" title="Sound"></button>
+            </div>
+        </div>
+        <div class="mode-screen">
+            <div class="title-logo">
+                <span class="title-emoji">🧠</span>
+                <h2>Memory</h2>
+                <p class="title-subtitle">Match the pairs!</p>
+            </div>
+            <div class="mode-buttons">
+                <button class="btn btn-primary" id="btn-1p">1 Player</button>
+                <button class="btn btn-accent" id="btn-2p">2 Players</button>
+            </div>
+            <div class="difficulty-select">
+                <p class="difficulty-label">Difficulty</p>
+                <div class="difficulty-buttons">
+                    <button class="btn btn-secondary diff-btn active" data-cols="4" data-rows="3">Easy<span class="diff-size">4x3</span></button>
+                    <button class="btn btn-secondary diff-btn" data-cols="4" data-rows="4">Medium<span class="diff-size">4x4</span></button>
+                    <button class="btn btn-secondary diff-btn" data-cols="5" data-rows="4">Hard<span class="diff-size">5x4</span></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="game-screen" class="screen">
+        <div class="game-header">
+            <div class="game-header-left">
+                <button class="btn-icon" id="btn-menu" title="Menu">&#8592;</button>
+            </div>
+            <div class="game-header-center">
+                <div id="game-info" class="game-info"></div>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-theme-toggle" title="Theme"></button>
+                <button class="btn-icon shell-sound-toggle" title="Sound"></button>
+            </div>
+        </div>
+
+        <div id="turn-indicator" class="turn-indicator hidden"></div>
+
+        <div class="board-wrapper">
+            <div id="card-grid" class="card-grid"></div>
+        </div>
+
+        <div id="player-scores" class="player-scores hidden">
+            <div class="player-panel p1-panel" id="p1-panel">
+                <span class="player-name p1-label">P1</span>
+                <span class="player-score" id="p1-score">0</span>
+            </div>
+            <div class="player-panel p2-panel" id="p2-panel">
+                <span class="player-name p2-label">P2</span>
+                <span class="player-score" id="p2-score">0</span>
+            </div>
+        </div>
+
+        <div id="solo-stats" class="solo-stats hidden">
+            <span id="stat-moves">Moves: 0</span>
+            <span id="stat-pairs">Pairs: 0</span>
+            <span id="stat-time">Time: 0:00</span>
+        </div>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="gameover-screen" class="screen">
+        <div class="game-header">
+            <div class="game-header-left"></div>
+            <div class="game-header-center">
+                <span class="game-title-bar">Game Over</span>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-theme-toggle" title="Theme"></button>
+                <button class="btn-icon shell-sound-toggle" title="Sound"></button>
+            </div>
+        </div>
+        <div class="game-over-overlay">
+            <div class="gameover-content">
+                <h2 id="gameover-title"></h2>
+                <div id="gameover-stats" class="gameover-stats"></div>
+                <div class="game-over-buttons">
+                    <button class="btn btn-primary" id="btn-play-again">Play Again</button>
+                    <button class="btn btn-secondary" id="btn-back-menu">Menu</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="../shared/audio.js"></script>
+    <script src="../shared/game-shell.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>

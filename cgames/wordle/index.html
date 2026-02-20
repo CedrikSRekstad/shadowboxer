@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Wordle - Cgames</title>
+    <link rel="stylesheet" href="../shared/theme.css">
+    <link rel="stylesheet" href="../shared/game-shell.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- ===== MAIN MENU ===== -->
+    <div id="menu-screen" class="screen active">
+        <div class="game-header">
+            <div class="game-header-left">
+                <button class="btn-icon shell-back" title="Back">&#8592;</button>
+            </div>
+            <div class="game-header-center">
+                <span class="game-title-bar">Wordle</span>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-theme-toggle" title="Theme"></button>
+                <button class="btn-icon shell-sound-toggle" title="Sound"></button>
+            </div>
+        </div>
+        <div class="mode-screen">
+            <div class="title-logo">
+                <div class="wordle-logo">
+                    <span class="logo-tile correct">W</span>
+                    <span class="logo-tile present">O</span>
+                    <span class="logo-tile absent">R</span>
+                    <span class="logo-tile correct">D</span>
+                    <span class="logo-tile present">S</span>
+                </div>
+                <h2>Wordle</h2>
+                <p class="title-subtitle">Guess the hidden word!</p>
+            </div>
+            <div class="mode-buttons">
+                <button class="btn btn-primary" data-mode="normal">Normal</button>
+                <button class="btn btn-secondary" data-mode="custom">Custom Word</button>
+                <button class="btn btn-accent" data-mode="race">2P Race</button>
+                <button class="btn btn-accent" data-mode="shared">2P Shared Guesses</button>
+                <button class="btn btn-accent" data-mode="hints">2P Hints</button>
+            </div>
+            <button class="btn btn-secondary btn-small" id="btn-how-to-play">How to Play</button>
+        </div>
+    </div>
+
+    <!-- ===== WORD LENGTH SELECT ===== -->
+    <div id="length-screen" class="screen">
+        <div class="game-header">
+            <div class="game-header-left">
+                <button class="btn-icon" id="btn-length-back" title="Back">&#8592;</button>
+            </div>
+            <div class="game-header-center">
+                <span class="game-title-bar">Word Length</span>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-theme-toggle" title="Theme"></button>
+                <button class="btn-icon shell-sound-toggle" title="Sound"></button>
+            </div>
+        </div>
+        <div class="mode-screen">
+            <h2>Choose Word Length</h2>
+            <div class="mode-buttons">
+                <button class="btn btn-secondary length-btn" data-length="4">Mini (4 letters)</button>
+                <button class="btn btn-primary length-btn" data-length="5">Classic (5 letters)</button>
+                <button class="btn btn-secondary length-btn" data-length="6">Hard (6 letters)</button>
+                <button class="btn btn-secondary length-btn" data-length="7">Expert (7 letters)</button>
+                <button class="btn btn-secondary length-btn" data-length="8">Master (8 letters)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== CUSTOM WORD INPUT ===== -->
+    <div id="custom-screen" class="screen">
+        <div class="game-header">
+            <div class="game-header-left">
+                <button class="btn-icon" id="btn-custom-back" title="Back">&#8592;</button>
+            </div>
+            <div class="game-header-center">
+                <span class="game-title-bar">Custom Word</span>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-theme-toggle" title="Theme"></button>
+                <button class="btn-icon shell-sound-toggle" title="Sound"></button>
+            </div>
+        </div>
+        <div class="mode-screen">
+            <h2>Enter Secret Word</h2>
+            <p class="custom-instruction">Player 1: type a secret word for Player 2 to guess.</p>
+            <div class="custom-input-group">
+                <input type="password" id="custom-word-input" class="text-input custom-word-field"
+                       placeholder="Type secret word..." maxlength="8" autocomplete="off" spellcheck="false">
+                <p class="custom-hint" id="custom-hint"></p>
+            </div>
+            <button class="btn btn-primary" id="btn-custom-start">Start Game</button>
+        </div>
+    </div>
+
+    <!-- ===== PASS DEVICE SCREEN ===== -->
+    <div id="pass-screen" class="screen">
+        <div class="game-header">
+            <div class="game-header-left"></div>
+            <div class="game-header-center">
+                <span class="game-title-bar">Pass Device</span>
+            </div>
+            <div class="game-header-right"></div>
+        </div>
+        <div class="mode-screen">
+            <h2 id="pass-message">Pass the device to Player 2</h2>
+            <p class="pass-subtitle">Tap Ready when the other player is looking.</p>
+            <button class="btn btn-primary" id="btn-pass-ready">Ready</button>
+        </div>
+    </div>
+
+    <!-- ===== HOW TO PLAY ===== -->
+    <div id="help-screen" class="screen">
+        <div class="game-header">
+            <div class="game-header-left">
+                <button class="btn-icon" id="btn-help-back" title="Back">&#8592;</button>
+            </div>
+            <div class="game-header-center">
+                <span class="game-title-bar">How to Play</span>
+            </div>
+            <div class="game-header-right"></div>
+        </div>
+        <div class="help-content">
+            <div class="help-section">
+                <h3>Goal</h3>
+                <p>Guess the hidden word in 6 tries. Each guess must be a valid word.</p>
+            </div>
+            <div class="help-section">
+                <h3>Color Clues</h3>
+                <div class="help-examples">
+                    <div class="help-row">
+                        <span class="help-tile correct">A</span>
+                        <span>Correct letter, correct position</span>
+                    </div>
+                    <div class="help-row">
+                        <span class="help-tile present">B</span>
+                        <span>Correct letter, wrong position</span>
+                    </div>
+                    <div class="help-row">
+                        <span class="help-tile absent">C</span>
+                        <span>Letter not in the word</span>
+                    </div>
+                </div>
+            </div>
+            <div class="help-section">
+                <h3>Game Modes</h3>
+                <p><strong>Normal:</strong> Classic solo Wordle.</p>
+                <p><strong>Custom:</strong> Player 1 sets a secret word for Player 2.</p>
+                <p><strong>2P Race:</strong> Both players guess the same word side-by-side. P1 types normally, P2 holds Right Shift.</p>
+                <p><strong>2P Shared:</strong> Players alternate turns on the same board.</p>
+                <p><strong>2P Hints:</strong> One player gives text hints, the other guesses.</p>
+            </div>
+            <div class="help-section">
+                <h3>Scoring</h3>
+                <p>Points by guesses: 1st=1000, 2nd=800, 3rd=600, 4th=400, 5th=250, 6th=100</p>
+                <p>Time bonus: under 30s=+200, under 60s=+100, under 120s=+50</p>
+                <p>Word length multiplier: 4=x0.8, 5=x1.0, 6=x1.2, 7=x1.5, 8=x2.0</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== GAME SCREEN ===== -->
+    <div id="game-screen" class="screen">
+        <div class="game-header">
+            <div class="game-header-left">
+                <button class="btn-icon" id="btn-game-back" title="Menu">&#8592;</button>
+            </div>
+            <div class="game-header-center">
+                <span class="game-title-bar" id="game-mode-label">Wordle</span>
+                <span id="game-timer" class="game-timer">0:00</span>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-theme-toggle" title="Theme"></button>
+                <button class="btn-icon shell-sound-toggle" title="Sound"></button>
+            </div>
+        </div>
+
+        <!-- Turn indicator for shared mode -->
+        <div id="turn-indicator" class="turn-indicator hidden"></div>
+
+        <!-- Hint area for hints mode -->
+        <div id="hint-area" class="hint-area hidden">
+            <div id="hint-giver-view" class="hint-giver-view hidden">
+                <p class="hint-secret">The word is: <strong id="hint-secret-word"></strong></p>
+                <div class="hint-input-row">
+                    <input type="text" id="hint-text-input" class="text-input hint-input" placeholder="Type a hint..." maxlength="80">
+                    <button class="btn btn-primary btn-small" id="btn-send-hint">Send</button>
+                </div>
+            </div>
+            <div id="hint-display" class="hint-display">
+                <div id="hint-messages" class="hint-messages"></div>
+            </div>
+            <div class="hint-toggle-row">
+                <button class="btn btn-secondary btn-small" id="btn-toggle-view">Switch to Giver View</button>
+            </div>
+        </div>
+
+        <!-- Game boards container (supports split screen for race mode) -->
+        <div id="boards-container" class="boards-container">
+            <div id="board-p1" class="board-panel">
+                <div class="board-label hidden" id="label-p1"><span class="p1-label">Player 1</span></div>
+                <div class="tile-grid" id="grid-p1"></div>
+            </div>
+            <div id="board-p2" class="board-panel hidden">
+                <div class="board-label" id="label-p2"><span class="p2-label">Player 2</span></div>
+                <div class="tile-grid" id="grid-p2"></div>
+            </div>
+        </div>
+
+        <!-- On-screen keyboard -->
+        <div id="keyboard" class="keyboard">
+            <div class="keyboard-row">
+                <button class="key" data-key="Q">Q</button>
+                <button class="key" data-key="W">W</button>
+                <button class="key" data-key="E">E</button>
+                <button class="key" data-key="R">R</button>
+                <button class="key" data-key="T">T</button>
+                <button class="key" data-key="Y">Y</button>
+                <button class="key" data-key="U">U</button>
+                <button class="key" data-key="I">I</button>
+                <button class="key" data-key="O">O</button>
+                <button class="key" data-key="P">P</button>
+            </div>
+            <div class="keyboard-row">
+                <div class="spacer-half"></div>
+                <button class="key" data-key="A">A</button>
+                <button class="key" data-key="S">S</button>
+                <button class="key" data-key="D">D</button>
+                <button class="key" data-key="F">F</button>
+                <button class="key" data-key="G">G</button>
+                <button class="key" data-key="H">H</button>
+                <button class="key" data-key="J">J</button>
+                <button class="key" data-key="K">K</button>
+                <button class="key" data-key="L">L</button>
+                <div class="spacer-half"></div>
+            </div>
+            <div class="keyboard-row">
+                <button class="key key-wide" data-key="ENTER">ENTER</button>
+                <button class="key" data-key="Z">Z</button>
+                <button class="key" data-key="X">X</button>
+                <button class="key" data-key="C">C</button>
+                <button class="key" data-key="V">V</button>
+                <button class="key" data-key="B">B</button>
+                <button class="key" data-key="N">N</button>
+                <button class="key" data-key="M">M</button>
+                <button class="key key-wide" data-key="BACKSPACE">&#9003;</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== RESULTS SCREEN ===== -->
+    <div id="results-screen" class="screen">
+        <div class="game-header">
+            <div class="game-header-left"></div>
+            <div class="game-header-center">
+                <span class="game-title-bar">Results</span>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-theme-toggle" title="Theme"></button>
+                <button class="btn-icon shell-sound-toggle" title="Sound"></button>
+            </div>
+        </div>
+        <div class="game-over-overlay">
+            <div class="results-content">
+                <h2 id="results-title"></h2>
+                <p id="results-word" class="results-word"></p>
+                <div id="results-breakdown" class="results-breakdown"></div>
+                <div id="results-2p" class="results-2p hidden"></div>
+                <div class="game-over-buttons">
+                    <button class="btn btn-primary" id="btn-play-again">Play Again</button>
+                    <button class="btn btn-secondary" id="btn-back-menu">Menu</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="../shared/audio.js"></script>
+    <script src="../shared/game-shell.js"></script>
+    <script src="js/words-4.js"></script>
+    <script src="js/words-5.js"></script>
+    <script src="js/words-6.js"></script>
+    <script src="js/words-7.js"></script>
+    <script src="js/words-8.js"></script>
+    <script src="js/game.js"></script>
+</body>
+</html>

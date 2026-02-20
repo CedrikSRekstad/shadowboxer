@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Spin Wars - Cgames</title>
+    <link rel="stylesheet" href="../shared/theme.css">
+    <link rel="stylesheet" href="../shared/game-shell.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- Title Screen -->
+    <div id="title-screen" class="screen active">
+        <div class="game-header">
+            <div class="game-header-left">
+                <button class="btn-icon shell-back" title="Back">&#8592;</button>
+            </div>
+            <div class="game-header-center">
+                <span class="game-title-bar">Spin Wars</span>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-theme-toggle" title="Toggle theme"></button>
+                <button class="btn-icon shell-sound-toggle" title="Toggle sound"></button>
+            </div>
+        </div>
+        <div class="mode-screen">
+            <div class="title-logo">
+                <div class="title-icon">&#127744;</div>
+                <h2>Spin Wars</h2>
+                <p class="title-subtitle">Best of 3 rounds &mdash; Last top spinning wins!</p>
+            </div>
+            <div class="mode-buttons">
+                <button class="btn btn-primary" id="btn-1p">1 Player</button>
+                <button class="btn btn-secondary" id="btn-2p">2 Players</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="game-screen" class="screen">
+        <div class="game-header">
+            <div class="game-header-left">
+                <button class="btn-icon" id="btn-pause" title="Pause">&#10074;&#10074;</button>
+            </div>
+            <div class="game-header-center">
+                <div class="score-hud">
+                    <span class="p1-score" id="score-p1">0</span>
+                    <span class="separator">-</span>
+                    <span class="p2-score" id="score-p2">0</span>
+                </div>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-theme-toggle" title="Toggle theme"></button>
+                <button class="btn-icon shell-sound-toggle" title="Toggle sound"></button>
+            </div>
+        </div>
+        <div class="spin-meters">
+            <div class="spin-meter p1-meter">
+                <span class="spin-label p1-label">P1 SPIN</span>
+                <div class="spin-bar-bg"><div class="spin-bar-fill p1-fill" id="spin-bar-p1"></div></div>
+            </div>
+            <div class="round-info" id="round-info">Round 1</div>
+            <div class="spin-meter p2-meter">
+                <span class="spin-label p2-label">P2 SPIN</span>
+                <div class="spin-bar-bg"><div class="spin-bar-fill p2-fill" id="spin-bar-p2"></div></div>
+            </div>
+        </div>
+        <div class="canvas-container" id="canvas-container">
+            <canvas id="game-canvas"></canvas>
+        </div>
+        <!-- Countdown overlay -->
+        <div class="countdown-overlay hidden" id="countdown-overlay">
+            <span class="countdown-number" id="countdown-number">3</span>
+        </div>
+        <!-- Pause overlay -->
+        <div class="pause-overlay hidden" id="pause-overlay">
+            <h2>Paused</h2>
+            <div class="game-over-buttons">
+                <button class="btn btn-primary" id="btn-resume">Resume</button>
+                <button class="btn btn-secondary" id="btn-quit">Quit</button>
+            </div>
+        </div>
+        <!-- Round overlay -->
+        <div class="round-overlay hidden" id="round-overlay">
+            <span class="round-text" id="round-text"></span>
+        </div>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="gameover-screen" class="screen">
+        <div class="game-header">
+            <div class="game-header-left">
+                <button class="btn-icon shell-back" title="Back">&#8592;</button>
+            </div>
+            <div class="game-header-center">
+                <span class="game-title-bar">Spin Wars</span>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-theme-toggle" title="Toggle theme"></button>
+                <button class="btn-icon shell-sound-toggle" title="Toggle sound"></button>
+            </div>
+        </div>
+        <div class="game-over-overlay" style="position:relative; flex:1;">
+            <h2 id="winner-text">Player 1 Wins!</h2>
+            <div class="score-display" id="final-score">2 - 1</div>
+            <div class="game-over-buttons">
+                <button class="btn btn-primary" id="btn-play-again">Play Again</button>
+                <button class="btn btn-secondary" id="btn-menu">Menu</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="../shared/audio.js"></script>
+    <script src="../shared/game-shell.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>

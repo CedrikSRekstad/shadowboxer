@@ -1,0 +1,455 @@
+/* === Memory Game Styles === */
+
+/* Title screen */
+.title-logo {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 8px;
+}
+
+.title-emoji {
+    font-size: 3.5rem;
+    line-height: 1;
+    margin-bottom: 4px;
+}
+
+.title-logo h2 {
+    font-size: 2rem;
+    font-weight: 800;
+    letter-spacing: 2px;
+}
+
+.title-subtitle {
+    color: var(--text-secondary);
+    font-size: 1rem;
+}
+
+.difficulty-select {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    width: 100%;
+    max-width: 320px;
+}
+
+.difficulty-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+}
+
+.difficulty-buttons {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+}
+
+.diff-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 10px 8px !important;
+    font-size: 0.9rem !important;
+    border: 2px solid transparent;
+    transition: border-color 0.2s, background 0.2s, transform 0.15s;
+}
+
+.diff-btn.active {
+    border-color: var(--accent);
+    background: var(--bg-card);
+}
+
+.diff-size {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+/* Game screen layout */
+.board-wrapper {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 12px;
+    overflow: hidden;
+}
+
+/* Card grid */
+.card-grid {
+    display: grid;
+    gap: 8px;
+    width: 100%;
+    max-width: 560px;
+    perspective: 1000px;
+}
+
+/* Turn indicator */
+.turn-indicator {
+    width: 100%;
+    padding: 6px 0;
+    text-align: center;
+    font-size: 0.9rem;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    transition: color 0.3s, border-color 0.3s;
+    border-bottom: 3px solid transparent;
+    flex-shrink: 0;
+}
+
+.turn-indicator.p1-turn {
+    color: var(--p1-color);
+    border-bottom-color: var(--p1-color);
+}
+
+.turn-indicator.p2-turn {
+    color: var(--p2-color);
+    border-bottom-color: var(--p2-color);
+}
+
+/* Card styles */
+.memory-card {
+    position: relative;
+    aspect-ratio: 1;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.card-inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    transform-style: preserve-3d;
+    transition: transform 0.5s ease;
+    border-radius: var(--border-radius);
+}
+
+.memory-card.flipped .card-inner {
+    transform: rotateY(180deg);
+}
+
+.card-face {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    border-radius: var(--border-radius);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Card back */
+.card-back {
+    background: var(--bg-card);
+    border: 2px solid var(--border-color);
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.card-back::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 60%;
+    height: 60%;
+    border-radius: 50%;
+    background: repeating-conic-gradient(
+        var(--border-color) 0% 25%,
+        transparent 25% 50%
+    );
+    opacity: 0.5;
+}
+
+.card-back::after {
+    content: '?';
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--text-muted);
+    z-index: 1;
+}
+
+.memory-card:not(.flipped):not(.matched):hover .card-back {
+    border-color: var(--accent);
+    box-shadow: 0 0 12px rgba(255, 221, 0, 0.15);
+}
+
+/* Card front */
+.card-front {
+    background: var(--bg-secondary);
+    border: 2px solid var(--border-color);
+    transform: rotateY(180deg);
+}
+
+.card-front .card-emoji {
+    font-size: 2rem;
+    line-height: 1;
+}
+
+/* Matched state */
+.memory-card.matched .card-inner {
+    transform: rotateY(180deg);
+}
+
+.memory-card.matched .card-front {
+    border-color: var(--success);
+    box-shadow: 0 0 16px rgba(83, 141, 78, 0.4);
+}
+
+.memory-card.matched {
+    cursor: default;
+}
+
+/* Match animation */
+@keyframes matchPulse {
+    0% { transform: rotateY(180deg) scale(1); }
+    50% { transform: rotateY(180deg) scale(1.08); }
+    100% { transform: rotateY(180deg) scale(1); }
+}
+
+.memory-card.match-anim .card-inner {
+    animation: matchPulse 0.4s ease;
+}
+
+/* No-match shake */
+@keyframes noMatch {
+    0%, 100% { transform: rotateY(180deg) translateX(0); }
+    20% { transform: rotateY(180deg) translateX(-4px); }
+    40% { transform: rotateY(180deg) translateX(4px); }
+    60% { transform: rotateY(180deg) translateX(-4px); }
+    80% { transform: rotateY(180deg) translateX(2px); }
+}
+
+.memory-card.no-match .card-inner {
+    animation: noMatch 0.4s ease;
+}
+
+/* Player scores (2P mode) */
+.player-scores {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    padding: 10px 16px;
+    width: 100%;
+    flex-shrink: 0;
+}
+
+.player-panel {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 20px;
+    border-radius: var(--border-radius);
+    background: var(--bg-secondary);
+    border: 2px solid transparent;
+    transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.player-panel.active-turn {
+    box-shadow: 0 0 12px rgba(0, 0, 0, 0.3);
+}
+
+.p1-panel.active-turn {
+    border-color: var(--p1-color);
+}
+
+.p2-panel.active-turn {
+    border-color: var(--p2-color);
+}
+
+.player-name {
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+
+.player-score {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--text-primary);
+}
+
+/* Solo stats bar */
+.solo-stats {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    padding: 10px 16px;
+    width: 100%;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+/* Game info in header */
+.game-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+/* Game over */
+.gameover-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 32px;
+    background: var(--bg-secondary);
+    border-radius: 16px;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow);
+    max-width: 380px;
+    width: 90%;
+    text-align: center;
+}
+
+.gameover-content h2 {
+    font-size: 1.8rem;
+    color: var(--accent);
+}
+
+.gameover-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 1rem;
+    color: var(--text-secondary);
+}
+
+.gameover-stats .stat-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+}
+
+.gameover-stats .stat-label {
+    color: var(--text-muted);
+}
+
+.gameover-stats .stat-value {
+    color: var(--text-primary);
+    font-weight: 700;
+}
+
+.gameover-stats .winner-text {
+    font-size: 1.2rem;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.gameover-stats .winner-text.p1-win {
+    color: var(--p1-color);
+}
+
+.gameover-stats .winner-text.p2-win {
+    color: var(--p2-color);
+}
+
+.gameover-stats .winner-text.draw {
+    color: var(--accent);
+}
+
+/* Board complete animation */
+@keyframes boardComplete {
+    0% { opacity: 1; }
+    50% { opacity: 0.6; }
+    100% { opacity: 1; }
+}
+
+.card-grid.complete .memory-card.matched .card-front {
+    animation: boardComplete 0.6s ease;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+    .card-grid {
+        gap: 6px;
+    }
+
+    .card-front .card-emoji {
+        font-size: 1.5rem;
+    }
+
+    .card-back::after {
+        font-size: 1.2rem;
+    }
+
+    .player-scores {
+        gap: 12px;
+        padding: 8px 10px;
+    }
+
+    .player-panel {
+        padding: 6px 14px;
+        gap: 8px;
+    }
+
+    .player-score {
+        font-size: 1.2rem;
+    }
+
+    .solo-stats {
+        gap: 12px;
+        font-size: 0.8rem;
+    }
+
+    .title-emoji {
+        font-size: 2.5rem;
+    }
+
+    .title-logo h2 {
+        font-size: 1.6rem;
+    }
+
+    .gameover-content {
+        padding: 24px;
+    }
+
+    .gameover-content h2 {
+        font-size: 1.4rem;
+    }
+}
+
+@media (max-width: 360px) {
+    .card-grid {
+        gap: 4px;
+    }
+
+    .card-front .card-emoji {
+        font-size: 1.2rem;
+    }
+
+    .card-back::after {
+        font-size: 1rem;
+    }
+
+    .board-wrapper {
+        padding: 8px;
+    }
+}
+
+@media (min-width: 768px) {
+    .card-front .card-emoji {
+        font-size: 2.5rem;
+    }
+
+    .card-back::after {
+        font-size: 1.8rem;
+    }
+}

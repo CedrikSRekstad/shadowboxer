@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Space Shooter - Cgames</title>
+    <link rel="stylesheet" href="../shared/theme.css">
+    <link rel="stylesheet" href="../shared/game-shell.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="toast" class="toast hidden"></div>
+
+    <!-- Title Screen -->
+    <div id="title-screen" class="screen active">
+        <div class="game-header">
+            <div class="game-header-left">
+                <button class="btn-icon shell-back" title="Back">&#8592;</button>
+            </div>
+            <div class="game-header-center">
+                <span class="game-title-bar">Space Shooter</span>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-sound-toggle" title="Sound"></button>
+                <button class="btn-icon shell-theme-toggle" title="Theme"></button>
+            </div>
+        </div>
+        <div class="mode-screen">
+            <div class="title-logo">
+                <div class="title-ship"></div>
+                <h2>Space Shooter</h2>
+                <p class="title-sub">Defend the galaxy</p>
+            </div>
+            <div class="mode-buttons">
+                <button class="btn btn-primary" id="btn-1p">1 Player</button>
+                <button class="btn btn-accent" id="btn-2p-coop">2 Player Co-op</button>
+                <button class="btn btn-secondary" id="btn-2p-vs">2 Player Versus</button>
+            </div>
+            <div class="controls-hint">
+                <p>P1: WASD + C/Space &nbsp; P2: Arrows + ./Enter</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="game-screen" class="screen">
+        <div class="game-header">
+            <div class="game-header-left">
+                <button class="btn-icon" id="btn-pause" title="Pause">&#9646;&#9646;</button>
+            </div>
+            <div class="game-header-center" id="game-hud">
+                <span class="hud-item p1-label" id="hud-p1">P1: 0</span>
+                <span class="hud-item" id="hud-lives-1">&#9829;&#9829;&#9829;</span>
+                <span class="hud-item hud-wave" id="hud-wave">Wave 1</span>
+                <span class="hud-item p2-label hidden" id="hud-p2">P2: 0</span>
+                <span class="hud-item hidden" id="hud-lives-2">&#9829;&#9829;&#9829;</span>
+                <span class="hud-item hidden" id="hud-timer"></span>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-sound-toggle" title="Sound"></button>
+            </div>
+        </div>
+        <div class="canvas-container" id="canvas-container">
+            <canvas id="game-canvas"></canvas>
+        </div>
+        <!-- Touch Controls -->
+        <div class="touch-controls" id="touch-controls">
+            <div class="touch-joystick" id="touch-joystick">
+                <div class="joystick-base">
+                    <div class="joystick-knob" id="joystick-knob"></div>
+                </div>
+            </div>
+            <div class="touch-fire" id="touch-fire">FIRE</div>
+        </div>
+    </div>
+
+    <!-- Pause Overlay -->
+    <div id="pause-overlay" class="screen">
+        <div class="game-over-overlay">
+            <h2>Paused</h2>
+            <div class="game-over-buttons">
+                <button class="btn btn-primary" id="btn-resume">Resume</button>
+                <button class="btn btn-secondary" id="btn-quit">Quit</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="gameover-screen" class="screen">
+        <div class="game-over-overlay">
+            <h2 id="gameover-title">Game Over</h2>
+            <div class="score-display" id="gameover-scores"></div>
+            <div class="game-over-buttons">
+                <button class="btn btn-primary" id="btn-retry">Play Again</button>
+                <button class="btn btn-secondary" id="btn-menu">Menu</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="../shared/audio.js"></script>
+    <script src="../shared/game-shell.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>

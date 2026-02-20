@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Canon Duel - Cgames</title>
+    <link rel="stylesheet" href="../shared/theme.css">
+    <link rel="stylesheet" href="../shared/game-shell.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- Title Screen -->
+    <div id="title-screen" class="screen active">
+        <div class="game-header">
+            <div class="game-header-left">
+                <button class="btn-icon shell-back" title="Back">&#8592;</button>
+            </div>
+            <div class="game-header-center">
+                <span class="game-title-bar">Canon Duel</span>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-theme-toggle" title="Toggle theme"></button>
+                <button class="btn-icon shell-sound-toggle" title="Toggle sound"></button>
+            </div>
+        </div>
+        <div class="mode-screen">
+            <div class="title-logo">
+                <div class="title-icon">&#128163;</div>
+                <h2>Canon Duel</h2>
+                <p class="title-subtitle">Aim, charge, and destroy your opponent!</p>
+            </div>
+            <div class="mode-buttons">
+                <button class="btn btn-primary" id="btn-1p">1 Player</button>
+                <button class="btn btn-secondary" id="btn-2p">2 Players</button>
+            </div>
+            <div class="controls-hint">
+                <p><strong>P1:</strong> W/S aim &bull; Hold Space to charge &amp; fire</p>
+                <p><strong>P2:</strong> Up/Down aim &bull; Hold Enter to charge &amp; fire</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="game-screen" class="screen">
+        <div class="game-header">
+            <div class="game-header-left">
+                <button class="btn-icon" id="btn-pause" title="Pause">&#10074;&#10074;</button>
+            </div>
+            <div class="game-header-center">
+                <div class="turn-indicator" id="turn-indicator">P1's Turn</div>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-theme-toggle" title="Toggle theme"></button>
+                <button class="btn-icon shell-sound-toggle" title="Toggle sound"></button>
+            </div>
+        </div>
+        <div class="canvas-container" id="canvas-container">
+            <canvas id="game-canvas"></canvas>
+        </div>
+        <!-- Pause overlay -->
+        <div class="pause-overlay hidden" id="pause-overlay">
+            <h2>Paused</h2>
+            <div class="game-over-buttons">
+                <button class="btn btn-primary" id="btn-resume">Resume</button>
+                <button class="btn btn-secondary" id="btn-quit">Quit</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="gameover-screen" class="screen">
+        <div class="game-header">
+            <div class="game-header-left">
+                <button class="btn-icon shell-back" title="Back">&#8592;</button>
+            </div>
+            <div class="game-header-center">
+                <span class="game-title-bar">Canon Duel</span>
+            </div>
+            <div class="game-header-right">
+                <button class="btn-icon shell-theme-toggle" title="Toggle theme"></button>
+                <button class="btn-icon shell-sound-toggle" title="Toggle sound"></button>
+            </div>
+        </div>
+        <div class="game-over-overlay" style="position:relative; flex:1;">
+            <h2 id="winner-text">Player 1 Wins!</h2>
+            <div class="score-display" id="final-score"></div>
+            <div class="game-over-buttons">
+                <button class="btn btn-primary" id="btn-play-again">Play Again</button>
+                <button class="btn btn-secondary" id="btn-menu">Menu</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="../shared/audio.js"></script>
+    <script src="../shared/game-shell.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>

@@ -1,0 +1,131 @@
+/* === BrickBlast Styles === */
+
+/* Title screen */
+.title-icon {
+    font-size: 3.5rem;
+    margin-bottom: 4px;
+    line-height: 1;
+}
+
+.title-subtitle {
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    margin-top: 4px;
+}
+
+.title-logo {
+    text-align: center;
+    margin-bottom: 10px;
+}
+
+/* HUD */
+.score-hud {
+    font-size: 0.95rem;
+    font-weight: 600;
+    gap: 12px;
+}
+
+.lives-label,
+.level-label,
+.timer-label {
+    color: var(--text-secondary);
+}
+
+.lives-label span {
+    color: var(--accent-secondary);
+}
+
+.level-label span {
+    color: var(--accent-tertiary);
+}
+
+.timer-label {
+    color: var(--accent);
+    font-weight: 700;
+    min-width: 40px;
+    text-align: center;
+}
+
+/* Countdown */
+.countdown-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--overlay);
+    z-index: 25;
+}
+
+.countdown-number {
+    font-size: 5rem;
+    font-weight: 900;
+    color: var(--accent);
+    animation: countPulse 0.6s ease-out;
+}
+
+@keyframes countPulse {
+    0% { transform: scale(2); opacity: 0; }
+    50% { opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+/* Pause overlay */
+.pause-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    background: var(--overlay);
+    z-index: 25;
+}
+
+.pause-overlay h2 {
+    font-size: 2rem;
+    color: var(--accent);
+}
+
+/* Game over enhancements */
+#gameover-screen .game-over-overlay h2 {
+    text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+}
+
+#gameover-screen .score-display {
+    font-size: 1.3rem;
+    margin-bottom: 8px;
+}
+
+/* Canvas styles */
+#game-canvas {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+    .score-hud {
+        font-size: 0.8rem;
+        gap: 8px;
+    }
+    .countdown-number {
+        font-size: 3.5rem;
+    }
+}
+
+@media (max-height: 500px) {
+    .mode-screen {
+        gap: 8px;
+        padding: 10px;
+    }
+    .title-icon {
+        font-size: 2rem;
+    }
+    .mode-screen h2 {
+        font-size: 1.2rem;
+    }
+}

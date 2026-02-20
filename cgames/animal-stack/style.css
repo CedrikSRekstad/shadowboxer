@@ -1,0 +1,179 @@
+/* === Animal Stack Game Styles === */
+
+/* Title screen */
+.title-logo {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.title-animals {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.title-animal {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: inline-block;
+    animation: titleBounce 0.5s ease backwards;
+}
+
+.title-animal:nth-child(1) {
+    background: #8B5E3C;
+    animation-delay: 0.1s;
+}
+.title-animal:nth-child(2) {
+    background: #9E9E9E;
+    animation-delay: 0.2s;
+}
+.title-animal:nth-child(3) {
+    background: #4CAF50;
+    animation-delay: 0.3s;
+}
+
+@keyframes titleBounce {
+    0% { transform: scale(0) translateY(40px); opacity: 0; }
+    60% { transform: scale(1.15) translateY(-5px); opacity: 1; }
+    100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+.title-logo h2 {
+    font-size: 2rem;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+}
+
+.title-subtitle {
+    color: var(--text-secondary);
+    font-size: 1rem;
+}
+
+/* HUD */
+.hud-height,
+.hud-lives {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: var(--bg-card);
+    border-radius: 6px;
+    padding: 4px 14px;
+    min-width: 70px;
+}
+
+.hud-label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.hud-value {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+/* Canvas */
+#game-canvas-1p,
+#game-canvas-2p {
+    background: var(--canvas-bg);
+    border-radius: 6px;
+}
+
+/* Game over */
+.gameover-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    padding: 20px;
+}
+
+.gameover-title {
+    font-size: 2.2rem;
+    font-weight: 800;
+    color: var(--accent);
+}
+
+.gameover-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: var(--bg-card);
+    border-radius: var(--border-radius);
+    padding: 20px 30px;
+    min-width: 220px;
+}
+
+.stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 30px;
+}
+
+.stat-label {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.stat-value {
+    font-size: 1.3rem;
+    font-weight: 800;
+    color: var(--text-primary);
+}
+
+.gameover-buttons {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+/* Score HUD 2P */
+.score-hud .p1-score,
+.score-hud .p2-score {
+    min-width: 28px;
+    text-align: center;
+    font-size: 1.4rem;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+    .title-animal {
+        width: 40px;
+        height: 40px;
+    }
+    .title-logo h2 {
+        font-size: 1.6rem;
+    }
+    .gameover-title {
+        font-size: 1.8rem;
+    }
+}
+
+@media (max-height: 600px) {
+    .title-logo {
+        gap: 4px;
+        margin-bottom: 8px;
+    }
+    .title-animal {
+        width: 36px;
+        height: 36px;
+    }
+    .title-logo h2 {
+        font-size: 1.4rem;
+    }
+    .mode-buttons .btn {
+        padding: 10px;
+        font-size: 0.95rem;
+    }
+}
