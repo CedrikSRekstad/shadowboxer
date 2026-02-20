@@ -18,11 +18,12 @@
         });
     });
 
-    // Draw mini previews on each card canvas
+    // Draw mini previews on each card canvas (2x resolution)
     var canvases = document.querySelectorAll('.preview-canvas');
     canvases.forEach(function (cvs) {
         var ctx = cvs.getContext('2d');
-        var w = cvs.width, h = cvs.height;
+        ctx.scale(2, 2);
+        var w = cvs.width / 2, h = cvs.height / 2;
         var game = cvs.getAttribute('data-game');
         drawPreview(ctx, w, h, game);
     });

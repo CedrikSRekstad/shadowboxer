@@ -81,15 +81,35 @@
     gap: 4px;
 }
 
+/* Override game overflow:hidden for hub scrolling */
+html.hub-page, html.hub-page body {
+    overflow: visible;
+    overflow-x: hidden;
+    height: auto;
+    min-height: 100%;
+}
+
+/* Section title */
+.section-title {
+    position: relative;
+    z-index: 2;
+    text-align: center;
+    font-size: 1.4rem;
+    font-weight: 300;
+    color: var(--text-secondary);
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    margin: 0 0 20px;
+    padding: 0 24px;
+}
+
 /* Main content */
 .hub-main {
     position: relative;
     z-index: 2;
     flex: 1;
-    overflow-y: auto;
-    overflow-x: hidden;
     width: 100%;
-    padding: 0 24px 24px;
+    padding: 0 24px 40px;
 }
 
 /* Game grid */
@@ -150,7 +170,6 @@
 .preview-canvas {
     width: 100%;
     height: 100%;
-    image-rendering: pixelated;
 }
 
 .card-info {
@@ -196,7 +215,8 @@
 /* Responsive */
 @media (max-width: 500px) {
     .hub-header { padding: 12px 16px; }
-    .hub-main { padding: 0 12px 16px; }
+    .hub-main { padding: 0 12px 24px; }
+    .section-title { font-size: 1rem; letter-spacing: 4px; margin-bottom: 14px; }
     .game-grid {
         grid-template-columns: repeat(2, 1fr);
         gap: 10px;
