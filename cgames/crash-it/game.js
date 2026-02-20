@@ -1,4 +1,4 @@
-/* === Crash It - Snake-Cars on a Winding Road === */
+/* === Crash It - Car Bumping Game on a Winding Road === */
 (function () {
     'use strict';
 
@@ -18,22 +18,23 @@
     var roundText = document.getElementById('round-text');
 
     // ── Constants ──
-    var ROAD_SEGMENT_LEN = 4;       // pixels per road segment
-    var ROAD_BASE_WIDTH = 180;       // starting road half-width
-    var ROAD_MIN_WIDTH = 70;         // minimum road half-width
-    var CAR_SPEED = 200;             // pixels/sec forward on road
-    var STEER_SPEED = 180;           // pixels/sec lateral
-    var HEAD_RADIUS = 10;
-    var BODY_RADIUS = 7;
-    var BODY_COUNT = 12;
-    var BODY_SPACING = 14;           // distance between segments
-    var ROAD_VISIBLE_AHEAD = 600;    // how far ahead to generate road
-    var ROAD_CURVE_STRENGTH = 0.004; // max curvature per segment
-    var NARROW_RATE = 0.015;         // how fast road narrows per second
-    var WIN_SCORE = 2;              // first to 2 wins (best of 3)
+    var ROAD_SEGMENT_LEN = 4;
+    var ROAD_BASE_WIDTH = 190;
+    var ROAD_MIN_WIDTH = 90;
+    var CAR_SPEED = 210;
+    var STEER_SPEED = 200;
+    var CAR_W = 20;
+    var CAR_H = 36;
+    var ROAD_VISIBLE_AHEAD = 600;
+    var ROAD_CURVE_STRENGTH = 0.004;
+    var NARROW_RATE = 0.012;
+    var WIN_SCORE = 2;
+    var BUMP_FORCE = 280;
+    var BUMP_COOLDOWN = 0.3;
+    var SPEED_UP_RATE = 10;
 
     // ── State ──
-    var mode = 0;         // 1 or 2 players
+    var mode = 0;
     var paused = false;
     var running = false;
     var scores = [0, 0];
@@ -41,13 +42,13 @@
     var roundActive = false;
 
     // Road
-    var road = [];        // array of {x, y, hw} where hw = half-width
-    var roadDistance = 0;  // total distance generated
-    var roadCurve = 0;    // current curvature
+    var road = [];
+    var roadDistance = 0;
+    var roadCurve = 0;
     var roadCurveTarget = 0;
     var roadCurveTimer = 0;
     var roadHalfWidth = ROAD_BASE_WIDTH;
-    var cameraY = 0;      // how far up the road we've scrolled
+    var cameraY = 0;
 
     // Players
     var players = [];
@@ -57,12 +58,16 @@
 
     // Input
     var keys = {};
-    var touchState = { p1: 0, p2: 0 }; // -1 left, 0 none, 1 right
+    var touchState = { p1: 0, p2: 0 };
 
     // Animation
     var lastTime = 0;
     var animId = null;
-    var roundTimer = 0;   // elapsed time in current round
+    var roundTimer = 0;
+
+    // Screen shake
+    var shakeTimer = 0;
+    var shakeIntensity = 0;
 
     // ── Init ──
     GameShell.init({ backUrl: '../' });
@@ -105,13 +110,15 @@
         GameShell.showScreen('title-screen');
     });
 
-    // Hide P2 touch zone in 1P
     var touchZoneP2 = document.getElementById('touch-zone-p2');
 
     // ── Input ──
     document.addEventListener('keydown', function (e) {
         keys[e.key.toLowerCase()] = true;
         if (e.key === 'Escape' && running) togglePause();
+        if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown', ' '].indexOf(e.key.toLowerCase()) >= 0) {
+            e.preventDefault();
+        }
     });
     document.addEventListener('keyup', function (e) {
         keys[e.key.toLowerCase()] = false;
@@ -121,8 +128,8 @@
     function setupTouch(id, cb) {
         var el = document.getElementById(id);
         if (!el) return;
-        el.addEventListener('touchstart', function (e) { e.preventDefault(); cb(true); });
-        el.addEventListener('touchend', function (e) { e.preventDefault(); cb(false); });
+        el.addEventListener('touchstart', function (e) { e.preventDefault(); cb(true); }, { passive: false });
+        el.addEventListener('touchend', function (e) { e.preventDefault(); cb(false); }, { passive: false });
         el.addEventListener('mousedown', function (e) { e.preventDefault(); cb(true); });
         el.addEventListener('mouseup', function (e) { e.preventDefault(); cb(false); });
     }
@@ -150,7 +157,6 @@
         roadHalfWidth = ROAD_BASE_WIDTH;
         cameraY = 0;
 
-        // Starting straight section
         var cx = canvas.width / 2;
         for (var i = 0; i < 400; i++) {
             road.push({ x: cx, y: -i * ROAD_SEGMENT_LEN, hw: ROAD_BASE_WIDTH });
@@ -159,30 +165,24 @@
     }
 
     function extendRoad(targetY) {
-        // Generate road segments until we have enough ahead
         var lastSeg = road[road.length - 1];
         var lastX = lastSeg.x;
         var lastY = lastSeg.y;
 
         while (lastY > targetY - ROAD_VISIBLE_AHEAD) {
-            // Update curve direction periodically
             roadCurveTimer -= ROAD_SEGMENT_LEN;
             if (roadCurveTimer <= 0) {
                 roadCurveTarget = (Math.random() - 0.5) * 2 * ROAD_CURVE_STRENGTH;
                 roadCurveTimer = 100 + Math.random() * 300;
             }
 
-            // Smooth curve transition
             roadCurve += (roadCurveTarget - roadCurve) * 0.05;
-
-            // Narrow the road over distance
             roadHalfWidth = Math.max(ROAD_MIN_WIDTH, ROAD_BASE_WIDTH - roadDistance * NARROW_RATE);
 
             lastX += roadCurve * ROAD_SEGMENT_LEN * 100;
             lastY -= ROAD_SEGMENT_LEN;
             roadDistance += ROAD_SEGMENT_LEN;
 
-            // Clamp road center so it stays on canvas
             var margin = roadHalfWidth + 30;
             if (lastX < margin) { lastX = margin; roadCurve = Math.abs(roadCurve); }
             if (lastX > canvas.width - margin) { lastX = canvas.width - margin; roadCurve = -Math.abs(roadCurve); }
@@ -192,15 +192,12 @@
     }
 
     function pruneRoad(bottomY) {
-        // Remove road segments that have scrolled below visible area
         while (road.length > 2 && road[0].y > bottomY + 200) {
             road.shift();
         }
     }
 
-    // Get road properties at a given world Y
     function getRoadAt(worldY) {
-        // Binary search for the closest segment
         var lo = 0, hi = road.length - 1;
         while (lo < hi - 1) {
             var mid = (lo + hi) >> 1;
@@ -228,23 +225,20 @@
         var roadInfo = getRoadAt(startY);
         var startX = roadInfo.x + laneOffset;
 
-        var segs = [];
-        for (var i = 0; i < BODY_COUNT + 1; i++) {
-            segs.push({
-                x: startX,
-                y: startY + i * BODY_SPACING,
-                r: i === 0 ? HEAD_RADIUS : BODY_RADIUS
-            });
-        }
-
         return {
             index: index,
-            segments: segs,
-            steer: 0,      // -1 left, 1 right, 0 none
+            x: startX,
+            y: startY,
+            worldY: startY,
+            vx: 0,
+            steer: 0,
             alive: true,
             speed: CAR_SPEED,
-            // Track position on road in world coords
-            worldY: startY
+            bumpCooldown: 0,
+            angle: 0,
+            tireMarks: [],
+            spinTimer: 0,
+            spinDir: 0
         };
     }
 
@@ -252,16 +246,32 @@
     function spawnParticles(x, y, color, count) {
         for (var i = 0; i < count; i++) {
             var angle = Math.random() * Math.PI * 2;
-            var speed = 50 + Math.random() * 150;
+            var speed = 50 + Math.random() * 200;
             particles.push({
-                x: x,
-                y: y,
+                x: x, y: y,
                 vx: Math.cos(angle) * speed,
                 vy: Math.sin(angle) * speed,
-                life: 0.5 + Math.random() * 0.5,
-                maxLife: 0.5 + Math.random() * 0.5,
+                life: 0.4 + Math.random() * 0.5,
+                maxLife: 0.4 + Math.random() * 0.5,
                 r: 2 + Math.random() * 4,
                 color: color
+            });
+        }
+    }
+
+    function spawnSparks(x, y, count) {
+        var sparkColors = ['#ffdd00', '#ff8800', '#ffffff', '#ffaa44'];
+        for (var i = 0; i < count; i++) {
+            var angle = Math.random() * Math.PI * 2;
+            var speed = 100 + Math.random() * 250;
+            particles.push({
+                x: x, y: y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                life: 0.2 + Math.random() * 0.3,
+                maxLife: 0.2 + Math.random() * 0.3,
+                r: 1 + Math.random() * 2,
+                color: sparkColors[Math.floor(Math.random() * sparkColors.length)]
             });
         }
     }
@@ -271,8 +281,8 @@
             var p = particles[i];
             p.x += p.vx * dt;
             p.y += p.vy * dt;
-            p.vx *= 0.96;
-            p.vy *= 0.96;
+            p.vx *= 0.94;
+            p.vy *= 0.94;
             p.life -= dt;
             if (p.life <= 0) particles.splice(i, 1);
         }
@@ -295,31 +305,26 @@
     function updateAI(player, opponent, dt) {
         if (!player.alive) return;
 
-        var head = player.segments[0];
-        var worldY = player.worldY;
-        var lookAhead = worldY - 80;
+        var lookAhead = player.worldY - 100;
         var ri = getRoadAt(lookAhead);
 
-        // Steer toward road center with some offset toward opponent
         var targetX = ri.x;
 
-        // If opponent is alive, try to steer toward them
+        // Try to ram the opponent
         if (opponent && opponent.alive) {
-            var opHead = opponent.segments[0];
-            var dx = opHead.x - head.x;
-            // Ram toward opponent's head, but only if relatively close laterally
-            if (Math.abs(dx) < ri.hw * 0.8) {
-                targetX = opHead.x;
+            var dx = opponent.x - player.x;
+            if (Math.abs(dx) < ri.hw * 0.7) {
+                targetX = opponent.x + (Math.random() < 0.3 ? 0 : dx * 0.3);
             }
         }
 
-        // Add some randomness for imperfect AI
-        targetX += Math.sin(roundTimer * 2.5) * 15;
+        // Add wobble for imperfect AI
+        targetX += Math.sin(roundTimer * 3) * 12;
 
         var steer = 0;
-        var diff = targetX - head.x;
-        if (diff < -8) steer = -1;
-        else if (diff > 8) steer = 1;
+        var diff = targetX - player.x;
+        if (diff < -10) steer = -1;
+        else if (diff > 10) steer = 1;
 
         player.steer = steer;
     }
@@ -328,106 +333,80 @@
     function getPlayerInput(pIndex) {
         var steer = 0;
         if (pIndex === 0) {
-            // P1: A/D always
             if (keys['a']) steer -= 1;
             if (keys['d']) steer += 1;
-            // In 1P mode, P1 can also use arrow keys
             if (mode === 1) {
                 if (keys['arrowleft']) steer -= 1;
                 if (keys['arrowright']) steer += 1;
             }
-            // Touch
             if (touchState.p1 !== 0) steer = touchState.p1;
         } else {
-            // P2: Arrow keys
             if (keys['arrowleft']) steer -= 1;
             if (keys['arrowright']) steer += 1;
-            // Touch
             if (touchState.p2 !== 0) steer = touchState.p2;
         }
         return Math.max(-1, Math.min(1, steer));
     }
 
-    // ── Collision detection ──
-    function circlesCollide(ax, ay, ar, bx, by, br) {
-        var dx = ax - bx;
-        var dy = ay - by;
-        var dist = Math.sqrt(dx * dx + dy * dy);
-        return dist < ar + br;
-    }
-
-    function checkCollisions() {
+    // ── Collision between cars ──
+    function checkCarCollision() {
         if (players.length < 2) return;
         var p1 = players[0];
         var p2 = players[1];
-
         if (!p1.alive || !p2.alive) return;
 
-        var h1 = p1.segments[0];
-        var h2 = p2.segments[0];
+        var dx = p1.x - p2.x;
+        var dy = p1.worldY - p2.worldY;
+        var dist = Math.sqrt(dx * dx + dy * dy);
 
-        // Head-to-head collision - both lose (draw, replay round)
-        if (circlesCollide(h1.x, h1.y, h1.r, h2.x, h2.y, h2.r)) {
-            // Both crash
-            var colors = [getPlayerColor(0), getPlayerColor(1)];
-            spawnParticles(h1.x, h1.y, colors[0], 20);
-            spawnParticles(h2.x, h2.y, colors[1], 20);
-            p1.alive = false;
-            p2.alive = false;
+        // Cars overlap (simplified circle collision using average car dimension)
+        var collisionDist = (CAR_W + CAR_H) / 2;
+        if (dist < collisionDist && p1.bumpCooldown <= 0 && p2.bumpCooldown <= 0) {
+            // Calculate bump direction
+            var nx = dist > 0.01 ? dx / dist : 1;
+            var ny = dist > 0.01 ? dy / dist : 0;
+
+            // Apply lateral bump force (push cars apart)
+            p1.vx += nx * BUMP_FORCE;
+            p2.vx -= nx * BUMP_FORCE;
+
+            // Add slight spin effect
+            p1.spinTimer = 0.25;
+            p1.spinDir = nx > 0 ? 1 : -1;
+            p2.spinTimer = 0.25;
+            p2.spinDir = nx > 0 ? -1 : 1;
+
+            p1.bumpCooldown = BUMP_COOLDOWN;
+            p2.bumpCooldown = BUMP_COOLDOWN;
+
+            // Sparks at collision point
+            var cx = (p1.x + p2.x) / 2;
+            var cy = (p1.worldY + p2.worldY) / 2;
+            spawnSparks(cx, cy, 15);
+
             CGameAudio.play('hit');
-            triggerShake(8, 0.4);
-            endRound(-1); // draw
-            return;
-        }
-
-        // P1 head hits P2 body
-        for (var i = 1; i < p2.segments.length; i++) {
-            var seg = p2.segments[i];
-            if (circlesCollide(h1.x, h1.y, h1.r, seg.x, seg.y, seg.r)) {
-                spawnParticles(h1.x, h1.y, getPlayerColor(0), 20);
-                spawnParticles(seg.x, seg.y, getPlayerColor(1), 10);
-                p1.alive = false;
-                CGameAudio.play('hit');
-                triggerShake(6, 0.3);
-                endRound(1); // P2 wins round (P1 crashed into P2's body)
-                return;
-            }
-        }
-
-        // P2 head hits P1 body
-        for (var j = 1; j < p1.segments.length; j++) {
-            var seg2 = p1.segments[j];
-            if (circlesCollide(h2.x, h2.y, h2.r, seg2.x, seg2.y, seg2.r)) {
-                spawnParticles(h2.x, h2.y, getPlayerColor(1), 20);
-                spawnParticles(seg2.x, seg2.y, getPlayerColor(0), 10);
-                p2.alive = false;
-                CGameAudio.play('hit');
-                triggerShake(6, 0.3);
-                endRound(0); // P1 wins round (P2 crashed into P1's body)
-                return;
-            }
+            triggerShake(6, 0.25);
         }
     }
 
-    var edgeBounceCD = [0, 0]; // cooldown per player for bounce sound
+    var edgeBounceCD = [0, 0];
 
     function checkRoadBounds() {
         for (var p = 0; p < players.length; p++) {
             var player = players[p];
             if (!player.alive) continue;
 
-            var head = player.segments[0];
             var ri = getRoadAt(player.worldY);
-            var dx = Math.abs(head.x - ri.x);
+            var dx = Math.abs(player.x - ri.x);
 
-            if (dx > ri.hw - HEAD_RADIUS * 0.3) {
+            if (dx > ri.hw - CAR_W * 0.3) {
                 // Off the road!
                 player.alive = false;
-                spawnParticles(head.x, head.y, getPlayerColor(p), 25);
+                spawnParticles(player.x, player.worldY, getPlayerColor(p), 25);
+                spawnSparks(player.x, player.worldY, 12);
                 CGameAudio.play('lose');
-                triggerShake(5, 0.3);
+                triggerShake(7, 0.35);
 
-                // Other player wins
                 var winner = p === 0 ? 1 : 0;
                 endRound(winner);
                 return;
@@ -459,12 +438,12 @@
         currentRound = 0;
         updateScoreHUD();
 
-        // Show/hide P2 touch zone
         if (touchZoneP2) {
             touchZoneP2.style.display = mode === 2 ? '' : 'none';
         }
 
         GameShell.showScreen('game-screen');
+        resizeCanvas();
         startRound();
     }
 
@@ -484,8 +463,8 @@
 
         // Create players on opposite sides of the road
         players = [];
-        players.push(createPlayer(0, -30));
-        players.push(createPlayer(1, 30));
+        players.push(createPlayer(0, -35));
+        players.push(createPlayer(1, 35));
 
         // Countdown
         doCountdown(3, function () {
@@ -502,7 +481,6 @@
         countdownNumber.textContent = count;
         CGameAudio.play('countdown');
 
-        // Render initial frame during countdown
         drawFrame();
 
         if (count <= 1) {
@@ -524,13 +502,11 @@
         running = false;
         if (animId) cancelAnimationFrame(animId);
 
-        // winnerIndex: 0 = P1, 1 = P2, -1 = draw
         if (winnerIndex >= 0) {
             scores[winnerIndex]++;
             updateScoreHUD();
         }
 
-        // Show round result
         var msg = '';
         if (winnerIndex === -1) {
             msg = 'Draw!';
@@ -539,24 +515,19 @@
             CGameAudio.play('score');
         }
 
-        // Check for match winner
         if (scores[0] >= WIN_SCORE || scores[1] >= WIN_SCORE) {
-            // Delay before showing game over
             setTimeout(function () {
                 showGameOver();
             }, 1200);
         } else {
-            // Next round after delay
             setTimeout(function () {
                 startRound();
             }, 1500);
         }
 
-        // Show brief overlay
         roundOverlay.classList.remove('hidden');
         roundText.textContent = msg;
 
-        // Keep rendering particles after round ends
         lastTime = performance.now();
         animatePostRound();
     }
@@ -616,7 +587,6 @@
 
         roundTimer += dt;
 
-        // Move both players forward
         for (var p = 0; p < players.length; p++) {
             var player = players[p];
             if (!player.alive) continue;
@@ -628,34 +598,43 @@
                 player.steer = getPlayerInput(p);
             }
 
-            // Move head forward (up in world space) and laterally
-            var head = player.segments[0];
+            // Steering reduces forward speed slightly
+            var steerPenalty = 1 - Math.abs(player.steer) * 0.12;
 
-            // Steering reduces forward speed slightly (turning friction)
-            var steerPenalty = 1 - Math.abs(player.steer) * 0.15;
+            // Speed up over time
+            player.speed = CAR_SPEED + roundTimer * SPEED_UP_RATE;
 
+            // Move forward
             player.worldY -= player.speed * steerPenalty * dt;
-            head.y = player.worldY;
-            head.x += player.steer * STEER_SPEED * dt;
+            player.y = player.worldY;
 
-            // Body follows head (chain/snake behavior)
-            for (var i = 1; i < player.segments.length; i++) {
-                var prev = player.segments[i - 1];
-                var seg = player.segments[i];
+            // Lateral movement from steering
+            player.x += player.steer * STEER_SPEED * dt;
 
-                var dx = seg.x - prev.x;
-                var dy = seg.y - prev.y;
-                var dist = Math.sqrt(dx * dx + dy * dy);
+            // Apply bump velocity (decays over time)
+            player.x += player.vx * dt;
+            player.vx *= Math.pow(0.04, dt); // fast decay
 
-                if (dist > BODY_SPACING) {
-                    var ratio = BODY_SPACING / dist;
-                    seg.x = prev.x + dx * ratio;
-                    seg.y = prev.y + dy * ratio;
-                }
+            // Bump cooldown
+            if (player.bumpCooldown > 0) player.bumpCooldown -= dt;
+
+            // Spin effect (visual only)
+            if (player.spinTimer > 0) {
+                player.spinTimer -= dt;
+                player.angle = player.spinDir * player.spinTimer * 3;
+            } else {
+                // Natural lean into turns
+                player.angle = player.steer * 0.15;
+            }
+
+            // Tire marks when bumped hard
+            if (Math.abs(player.vx) > 100) {
+                player.tireMarks.push({ x: player.x - 6, y: player.worldY + CAR_H / 2, alpha: 0.5 });
+                player.tireMarks.push({ x: player.x + 6, y: player.worldY + CAR_H / 2, alpha: 0.5 });
             }
         }
 
-        // Camera follows the leading player (or average)
+        // Camera follows average position of alive players
         var avgY = 0;
         var aliveCount = 0;
         for (var pi = 0; pi < players.length; pi++) {
@@ -668,34 +647,31 @@
             cameraY = avgY / aliveCount;
         }
 
-        // Extend road ahead
+        // Extend & prune road
         extendRoad(cameraY - ROAD_VISIBLE_AHEAD);
+        pruneRoad(cameraY + canvas.height);
 
-        // Prune old road
-        var bottomWorldY = cameraY + canvas.height;
-        pruneRoad(bottomWorldY);
+        // Check car-on-car collision
+        checkCarCollision();
+        if (!roundActive) return;
 
-        // Speed up slightly over time
-        for (var sp = 0; sp < players.length; sp++) {
-            if (players[sp].alive) {
-                players[sp].speed = CAR_SPEED + roundTimer * 8;
-            }
-        }
-
-        // Check collisions
-        checkCollisions();
-        if (!roundActive) return; // round might have ended
-
+        // Check road bounds
         checkRoadBounds();
         if (!roundActive) return;
+
+        // Fade tire marks
+        for (var p2 = 0; p2 < players.length; p2++) {
+            var marks = players[p2].tireMarks;
+            for (var mi = marks.length - 1; mi >= 0; mi--) {
+                marks[mi].alpha -= dt * 0.5;
+                if (marks[mi].alpha <= 0) marks.splice(mi, 1);
+            }
+            if (marks.length > 200) marks.splice(0, marks.length - 200);
+        }
 
         // Update particles
         updateParticles(dt);
     }
-
-    // Screen shake
-    var shakeTimer = 0;
-    var shakeIntensity = 0;
 
     function triggerShake(intensity, duration) {
         shakeIntensity = intensity;
@@ -707,12 +683,10 @@
         var W = canvas.width;
         var H = canvas.height;
 
-        // Background
         var bgColor = getComputedStyle(document.documentElement).getPropertyValue('--canvas-bg').trim();
         ctx.fillStyle = bgColor;
         ctx.fillRect(0, 0, W, H);
 
-        // Apply screen shake
         var shakeX = 0, shakeY = 0;
         if (shakeTimer > 0) {
             shakeX = (Math.random() - 0.5) * shakeIntensity * 2;
@@ -724,21 +698,12 @@
         ctx.save();
         ctx.translate(shakeX, shakeY);
 
-        // World-to-screen offset
-        var offsetY = -cameraY + H * 0.65; // camera position: player is in lower portion
+        var offsetY = -cameraY + H * 0.65;
 
-        // Draw road
         drawRoad(offsetY, W, H);
-
-        // Draw players
-        for (var p = 0; p < players.length; p++) {
-            drawPlayer(players[p], offsetY);
-        }
-
-        // Draw particles
+        drawTireMarks(offsetY);
+        drawCars(offsetY);
         drawParticles(offsetY);
-
-        // Draw road edge indicators if near edge
         drawEdgeWarnings(offsetY);
 
         ctx.restore();
@@ -749,17 +714,14 @@
 
         var theme = document.body.getAttribute('data-theme');
 
-        // Road fill color
         var roadColor = theme === 'dark' ? '#2a2a3e' : '#888899';
         var roadEdgeColor = theme === 'dark' ? '#444466' : '#666677';
         var roadLineColor = theme === 'dark' ? '#3a3a55' : '#aaaabb';
         var grassColor = theme === 'dark' ? '#0a1a0a' : '#88bb66';
 
-        // Draw grass background
         ctx.fillStyle = grassColor;
         ctx.fillRect(0, 0, W, H);
 
-        // Build visible road edge paths
         var leftPath = [];
         var rightPath = [];
 
@@ -785,7 +747,7 @@
             ctx.fillStyle = roadColor;
             ctx.fill();
 
-            // Road edges (solid lines)
+            // Road edges
             ctx.beginPath();
             ctx.moveTo(leftPath[0].x, leftPath[0].y);
             for (var le = 1; le < leftPath.length; le++) {
@@ -804,19 +766,16 @@
             ctx.lineWidth = 3;
             ctx.stroke();
 
-            // Rumble strips along edges (alternating colored blocks)
+            // Rumble strips
             var rumbleColor1 = theme === 'dark' ? '#cc3333' : '#cc2222';
             var rumbleColor2 = '#ffffff';
-            var rumbleSize = 8;
             for (var ri2 = 0; ri2 < leftPath.length; ri2 += 3) {
                 var block = Math.floor(ri2 / 3);
                 var c = (block % 2 === 0) ? rumbleColor1 : rumbleColor2;
                 ctx.fillStyle = c;
                 ctx.globalAlpha = 0.6;
-                // Left rumble
-                ctx.fillRect(leftPath[ri2].x - 4, leftPath[ri2].y - 1, rumbleSize, 3);
-                // Right rumble
-                ctx.fillRect(rightPath[ri2].x - 4, rightPath[ri2].y - 1, rumbleSize, 3);
+                ctx.fillRect(leftPath[ri2].x - 4, leftPath[ri2].y - 1, 8, 3);
+                ctx.fillRect(rightPath[ri2].x - 4, rightPath[ri2].y - 1, 8, 3);
             }
             ctx.globalAlpha = 1;
 
@@ -824,10 +783,10 @@
             ctx.beginPath();
             ctx.setLineDash([15, 15]);
             for (var cl = 0; cl < leftPath.length; cl++) {
-                var cx = (leftPath[cl].x + rightPath[cl].x) / 2;
-                var cy = leftPath[cl].y;
-                if (cl === 0) ctx.moveTo(cx, cy);
-                else ctx.lineTo(cx, cy);
+                var cx2 = (leftPath[cl].x + rightPath[cl].x) / 2;
+                var cy2 = leftPath[cl].y;
+                if (cl === 0) ctx.moveTo(cx2, cy2);
+                else ctx.lineTo(cx2, cy2);
             }
             ctx.strokeStyle = roadLineColor;
             ctx.lineWidth = 2;
@@ -836,119 +795,126 @@
         }
     }
 
-    function drawPlayer(player, offsetY) {
-        var color = getPlayerColor(player.index);
-        var lightColor = getPlayerLightColor(player.index);
+    function drawTireMarks(offsetY) {
+        var theme = document.body.getAttribute('data-theme');
+        var markColor = theme === 'dark' ? '180,180,180' : '60,60,60';
 
-        // Draw body segments (back to front)
-        for (var i = player.segments.length - 1; i >= 1; i--) {
-            var seg = player.segments[i];
-            var screenY = seg.y + offsetY;
-            var alpha = player.alive ? 1 : 0.4;
-
-            ctx.globalAlpha = alpha;
-
-            // Body glow
-            ctx.beginPath();
-            ctx.arc(seg.x, screenY, seg.r + 2, 0, Math.PI * 2);
-            ctx.fillStyle = color;
-            ctx.globalAlpha = alpha * 0.3;
-            ctx.fill();
-
-            // Body segment
-            ctx.globalAlpha = alpha;
-            ctx.beginPath();
-            ctx.arc(seg.x, screenY, seg.r, 0, Math.PI * 2);
-            ctx.fillStyle = lightColor;
-            ctx.fill();
-
-            // Connector line to previous
-            if (i > 0) {
-                var prev = player.segments[i - 1];
-                ctx.beginPath();
-                ctx.moveTo(seg.x, screenY);
-                ctx.lineTo(prev.x, prev.y + offsetY);
-                ctx.strokeStyle = color;
-                ctx.lineWidth = BODY_RADIUS * 1.2;
-                ctx.lineCap = 'round';
-                ctx.globalAlpha = alpha * 0.5;
-                ctx.stroke();
+        for (var p = 0; p < players.length; p++) {
+            var marks = players[p].tireMarks;
+            for (var i = 0; i < marks.length; i++) {
+                var m = marks[i];
+                var sy = m.y + offsetY;
+                ctx.fillStyle = 'rgba(' + markColor + ',' + m.alpha + ')';
+                ctx.fillRect(m.x - 1.5, sy - 2, 3, 4);
             }
         }
+    }
 
-        ctx.globalAlpha = 1;
+    function drawCars(offsetY) {
+        for (var p = 0; p < players.length; p++) {
+            var player = players[p];
+            drawCar(player, offsetY);
+        }
+    }
 
-        // Draw head
-        var head = player.segments[0];
-        var headScreenY = head.y + offsetY;
+    function drawCar(player, offsetY) {
+        var color = getPlayerColor(player.index);
+        var lightColor = getPlayerLightColor(player.index);
+        var theme = document.body.getAttribute('data-theme');
 
-        if (!player.alive) ctx.globalAlpha = 0.4;
+        var sx = player.x;
+        var sy = player.worldY + offsetY;
 
-        // Head glow
+        if (!player.alive) {
+            ctx.globalAlpha = 0.3;
+        }
+
+        ctx.save();
+        ctx.translate(sx, sy);
+        ctx.rotate(player.angle);
+
+        var hw = CAR_W / 2;
+        var hh = CAR_H / 2;
+
+        // Car shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
         ctx.beginPath();
-        ctx.arc(head.x, headScreenY, HEAD_RADIUS + 4, 0, Math.PI * 2);
+        ctx.roundRect(-hw + 2, -hh + 3, CAR_W, CAR_H, 4);
+        ctx.fill();
+
+        // Car body
         ctx.fillStyle = color;
-        ctx.globalAlpha = (player.alive ? 1 : 0.4) * 0.3;
+        ctx.beginPath();
+        ctx.roundRect(-hw, -hh, CAR_W, CAR_H, 4);
         ctx.fill();
 
-        // Head fill
-        ctx.globalAlpha = player.alive ? 1 : 0.4;
+        // Car body highlight (lighter center stripe)
+        ctx.fillStyle = lightColor;
         ctx.beginPath();
-        ctx.arc(head.x, headScreenY, HEAD_RADIUS, 0, Math.PI * 2);
-        ctx.fillStyle = color;
+        ctx.roundRect(-hw + 3, -hh + 2, CAR_W - 6, CAR_H - 4, 3);
         ctx.fill();
 
-        // Head highlight (white dot)
+        // Windshield (front)
+        var wsColor = theme === 'dark' ? 'rgba(100,200,255,0.4)' : 'rgba(100,150,200,0.5)';
+        ctx.fillStyle = wsColor;
         ctx.beginPath();
-        ctx.arc(head.x - 2, headScreenY - 2, 3, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffffff';
-        ctx.globalAlpha = (player.alive ? 1 : 0.4) * 0.6;
+        ctx.roundRect(-hw + 3, -hh + 3, CAR_W - 6, 8, [3, 3, 0, 0]);
         ctx.fill();
 
-        // Eyes on the head (direction-facing)
-        ctx.globalAlpha = player.alive ? 1 : 0.3;
-        var eyeOffset = player.steer * 2;
-        // Left eye
+        // Rear window
+        ctx.fillStyle = theme === 'dark' ? 'rgba(60,60,80,0.5)' : 'rgba(80,80,100,0.4)';
         ctx.beginPath();
-        ctx.arc(head.x - 3 + eyeOffset, headScreenY - 2, 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffffff';
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(head.x - 3 + eyeOffset + player.steer, headScreenY - 2, 1.2, 0, Math.PI * 2);
-        ctx.fillStyle = '#111';
+        ctx.roundRect(-hw + 4, hh - 10, CAR_W - 8, 6, [0, 0, 2, 2]);
         ctx.fill();
 
-        // Right eye
-        ctx.beginPath();
-        ctx.arc(head.x + 3 + eyeOffset, headScreenY - 2, 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffffff';
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(head.x + 3 + eyeOffset + player.steer, headScreenY - 2, 1.2, 0, Math.PI * 2);
-        ctx.fillStyle = '#111';
-        ctx.fill();
+        // Headlights (two small bright dots at front)
+        ctx.fillStyle = '#ffee88';
+        ctx.fillRect(-hw + 2, -hh, 4, 3);
+        ctx.fillRect(hw - 6, -hh, 4, 3);
 
+        // Taillights
+        ctx.fillStyle = '#ff3333';
+        ctx.fillRect(-hw + 2, hh - 3, 4, 3);
+        ctx.fillRect(hw - 6, hh - 3, 4, 3);
+
+        // Wheels (4 small dark rectangles)
+        ctx.fillStyle = theme === 'dark' ? '#111' : '#333';
+        // Front-left
+        ctx.fillRect(-hw - 2, -hh + 4, 3, 8);
+        // Front-right
+        ctx.fillRect(hw - 1, -hh + 4, 3, 8);
+        // Rear-left
+        ctx.fillRect(-hw - 2, hh - 12, 3, 8);
+        // Rear-right
+        ctx.fillRect(hw - 1, hh - 12, 3, 8);
+
+        // Player number on roof
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('P' + (player.index + 1), 0, 2);
+
+        ctx.restore();
         ctx.globalAlpha = 1;
     }
 
     function drawEdgeWarnings(offsetY) {
-        // Flash warning if player is near road edge
         for (var p = 0; p < players.length; p++) {
             var player = players[p];
             if (!player.alive) continue;
 
-            var head = player.segments[0];
             var ri = getRoadAt(player.worldY);
-            var dx = Math.abs(head.x - ri.x);
-            var danger = dx / (ri.hw - HEAD_RADIUS);
+            var dx = Math.abs(player.x - ri.x);
+            var danger = dx / (ri.hw - CAR_W * 0.3);
 
             if (danger > 0.7) {
-                var alpha = (danger - 0.7) / 0.3 * 0.4;
+                var alpha = (danger - 0.7) / 0.3 * 0.5;
                 alpha *= 0.5 + 0.5 * Math.sin(roundTimer * 12);
-                var headScreenY = head.y + offsetY;
+                var sy = player.worldY + offsetY;
 
                 ctx.beginPath();
-                ctx.arc(head.x, headScreenY, HEAD_RADIUS + 8, 0, Math.PI * 2);
+                ctx.arc(player.x, sy, CAR_W + 6, 0, Math.PI * 2);
                 ctx.strokeStyle = '#ff4444';
                 ctx.lineWidth = 2;
                 ctx.globalAlpha = alpha;
