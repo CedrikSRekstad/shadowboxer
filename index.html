@@ -16,7 +16,19 @@
         <p class="subtitle">2 Player Battle</p>
         <p class="subtitle-small">Best of 3 Rounds</p>
         <button id="start-btn" class="menu-btn">QUICK FIGHT</button>
+        <button id="solo-btn" class="menu-btn menu-btn-solo">VS COMPUTER</button>
         <button id="customize-btn" class="menu-btn menu-btn-alt">CUSTOMIZE</button>
+    </div>
+
+    <!-- Difficulty Select Screen -->
+    <div id="difficulty-screen" class="hidden">
+        <h2 class="diff-title">AI DIFFICULTY</h2>
+        <div class="difficulty-options">
+            <button class="menu-btn diff-btn" data-diff="easy">😊 EASY</button>
+            <button class="menu-btn diff-btn" data-diff="medium">😎 MEDIUM</button>
+            <button class="menu-btn diff-btn" data-diff="hard">😈 HARD</button>
+        </div>
+        <button id="diff-back-btn" class="menu-btn menu-btn-small">BACK</button>
     </div>
 
     <!-- Customize Screen -->
@@ -57,7 +69,7 @@
         <!-- Player 2 HUD (top) -->
         <div id="p2-hud" class="hud hud-top">
             <div class="health-bar-container">
-                <div class="fighter-portrait p2-portrait">P2</div>
+                <div class="fighter-portrait p2-portrait" id="p2-portrait">P2</div>
                 <div id="p2-health-bar" class="health-bar p2-color"></div>
                 <div class="round-indicators" id="p2-rounds">
                     <span class="round-dot"></span>

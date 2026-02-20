@@ -523,6 +523,44 @@ body.pc-mode #game-canvas {
     margin-top: 0.5rem !important;
 }
 
+.menu-btn-solo {
+    background: linear-gradient(135deg, #e74c3c, #c0392b) !important;
+    color: #fff !important;
+    box-shadow: 4px 4px 0px #a93226, 0 0 20px rgba(231, 76, 60, 0.3) !important;
+    margin-top: 0.8rem !important;
+}
+
+/* ===== DIFFICULTY SCREEN ===== */
+#difficulty-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    background: linear-gradient(180deg, #0a0a12 0%, #1a0a1a 50%, #0a1020 100%);
+    gap: 0.5rem;
+}
+
+.diff-title {
+    font-family: 'Bangers', 'Impact', sans-serif;
+    font-size: 2.5rem;
+    color: #ffdd00;
+    text-shadow: 3px 3px 0px #e94560;
+    letter-spacing: 0.3rem;
+    margin-bottom: 1.5rem;
+}
+
+.difficulty-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.diff-btn {
+    min-width: 220px;
+}
+
 /* ===== CUSTOMIZE SCREEN ===== */
 #customize-screen {
     display: flex;

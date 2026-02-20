@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>Tag!</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Title Screen -->
+    <div id="title-screen">
+        <div class="title-bg"></div>
+        <div class="title-content">
+            <h1>TAG!</h1>
+            <p class="subtitle">Chase Game</p>
+            <div class="menu-characters">
+                <div class="menu-char char-blue"></div>
+                <div class="menu-char char-red"></div>
+            </div>
+            <button id="start-btn" class="menu-btn">2 PLAYERS</button>
+            <button id="solo-btn" class="menu-btn menu-btn-solo">VS COMPUTER</button>
+            <button id="how-btn" class="menu-btn menu-btn-alt">HOW TO PLAY</button>
+            <div class="sound-toggle" id="sound-toggle">🔊</div>
+        </div>
+    </div>
+
+    <!-- How To Play Screen -->
+    <div id="how-screen" class="hidden">
+        <h2>HOW TO PLAY</h2>
+        <div class="how-content">
+            <div class="how-section">
+                <h3>GOAL</h3>
+                <p>One player is "IT" and must tag the other player. Don't be "IT" when the timer runs out!</p>
+            </div>
+            <div class="how-section">
+                <h3>KEYBOARD</h3>
+                <p><strong>Player 1:</strong> WASD to move, W to jump, E or Shift to dash</p>
+                <p><strong>Player 2:</strong> Arrow keys to move, Up to jump, M to dash</p>
+            </div>
+            <div class="how-section">
+                <h3>MOVES</h3>
+                <p>🏃 <strong>Dash:</strong> Quick burst of speed (cooldown)<br>
+                🧗 <strong>Wall Jump:</strong> Slide on walls & jump off them<br>
+                🦘 <strong>Double Jump:</strong> Jump again in mid-air!</p>
+            </div>
+            <div class="how-section">
+                <h3>MOBILE</h3>
+                <p>Use the on-screen joystick, jump & dash buttons</p>
+            </div>
+            <div class="how-section">
+                <h3>POWER-UPS</h3>
+                <p>⚡ Speed &nbsp; ❄️ Freeze &nbsp; 🛡️ Shield &nbsp; 🧲 Magnet<br>
+                🔀 Swap &nbsp; 🔮 Teleport &nbsp; 🍄 Shrink</p>
+            </div>
+            <div class="how-section">
+                <h3>WORLDS</h3>
+                <p>🌲 Forest &nbsp; 🌋 Lava &nbsp; ❄️ Ice &nbsp; 🍬 Candy &nbsp; 🚀 Space<br>
+                🌊 Ocean &nbsp; 🏰 Castle &nbsp; ☁️ Sky</p>
+            </div>
+        </div>
+        <button id="how-back-btn" class="menu-btn">BACK</button>
+    </div>
+
+    <!-- Difficulty Select (for AI) -->
+    <div id="difficulty-screen" class="hidden">
+        <h2>AI DIFFICULTY</h2>
+        <div class="difficulty-options">
+            <button class="menu-btn diff-btn" data-diff="easy">😊 EASY</button>
+            <button class="menu-btn diff-btn" data-diff="medium">😎 MEDIUM</button>
+            <button class="menu-btn diff-btn" data-diff="hard">😈 HARD</button>
+        </div>
+        <button id="diff-back-btn" class="menu-btn menu-btn-alt">BACK</button>
+    </div>
+
+    <!-- World Select Screen -->
+    <div id="world-screen" class="hidden">
+        <h2 id="world-screen-title">CHOOSE WORLD</h2>
+        <div class="mode-selector" id="mode-selector">
+            <button class="mode-btn mode-btn-active" id="mode-tag-btn">🏷️ TAG</button>
+            <button class="mode-btn" id="mode-race-btn">🏁 RACE</button>
+        </div>
+        <p id="race-description" class="hidden race-desc">Race through ALL 16 worlds! Don't be IT at the finish line! (~10 min)</p>
+        <button id="race-start-btn" class="menu-btn hidden">START RACE 🏁</button>
+        <div class="world-grid" id="world-grid"></div>
+        <button id="world-back-btn" class="menu-btn menu-btn-alt">BACK</button>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="game-screen" class="hidden">
+        <canvas id="game-canvas"></canvas>
+
+        <!-- HUD -->
+        <div id="hud">
+            <div id="p1-score" class="score-display">
+                <span class="score-label">P1</span>
+                <span class="score-value" id="p1-score-val">0</span>
+            </div>
+            <div id="timer-display">
+                <span id="timer-val">60</span>
+            </div>
+            <div id="p2-score" class="score-display">
+                <span class="score-label" id="p2-label">P2</span>
+                <span class="score-value" id="p2-score-val">0</span>
+            </div>
+        </div>
+
+        <!-- Dash cooldown indicators -->
+        <div id="p1-dash-cd" class="dash-indicator left-dash">DASH ✓</div>
+        <div id="p2-dash-cd" class="dash-indicator right-dash">DASH ✓</div>
+
+        <!-- IT indicator -->
+        <div id="it-indicator">
+            <span id="it-text">P1 is IT!</span>
+        </div>
+
+        <!-- Mobile Controls - Player 1 (left side) -->
+        <div id="p1-mobile-controls" class="mobile-controls left-controls">
+            <div class="joystick-area" id="p1-joystick-area">
+                <div class="joystick-base" id="p1-joystick-base">
+                    <div class="joystick-knob" id="p1-joystick-knob"></div>
+                </div>
+            </div>
+            <div class="mobile-btn-stack">
+                <button class="jump-btn" id="p1-jump-btn">JUMP</button>
+                <button class="dash-btn" id="p1-dash-btn">DASH</button>
+            </div>
+        </div>
+
+        <!-- Mobile Controls - Player 2 (right side) -->
+        <div id="p2-mobile-controls" class="mobile-controls right-controls">
+            <div class="mobile-btn-stack">
+                <button class="jump-btn" id="p2-jump-btn">JUMP</button>
+                <button class="dash-btn" id="p2-dash-btn">DASH</button>
+            </div>
+            <div class="joystick-area" id="p2-joystick-area">
+                <div class="joystick-base" id="p2-joystick-base">
+                    <div class="joystick-knob" id="p2-joystick-knob"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pause / Exit -->
+        <button id="exit-btn" class="exit-btn">✕</button>
+    </div>
+
+    <!-- Round Over Screen -->
+    <div id="round-over-screen" class="hidden">
+        <h1 id="round-result"></h1>
+        <p id="round-scores"></p>
+        <button id="next-round-btn" class="menu-btn">NEXT ROUND</button>
+    </div>
+
+    <!-- Game Over Screen -->
+    <div id="gameover-screen" class="hidden">
+        <div id="confetti-container"></div>
+        <h1 id="winner-text">PLAYER 1 WINS!</h1>
+        <p id="final-scores"></p>
+        <button id="rematch-btn" class="menu-btn">REMATCH</button>
+        <button id="menu-btn" class="menu-btn menu-btn-alt">MENU</button>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>

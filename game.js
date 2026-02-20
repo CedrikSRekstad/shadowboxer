@@ -29,6 +29,21 @@ const ROUND_TIME = 60;
 // Animation durations (ms)
 const ANIM_DURATION = { punch: 300, kick: 450, counter: 400, dodge: 350, block: 0, grapple: 500, hit: 300, hitByPunch: 350, hitByKick: 500, groundRace: 2000 };
 
+// ===== AI =====
+let isVsAI = false;
+let aiDifficulty = 'medium';
+let aiThinkTimer = 0;
+let aiState = 'approach'; // 'approach', 'attack', 'retreat', 'defend', 'idle'
+let aiBlockTimer = 0;
+let aiGroundRaceTimer = 0;
+
+// AI difficulty settings
+const AI_SETTINGS = {
+    easy:   { thinkMin: 600, thinkMax: 900, attackChance: 0.30, counterChance: 0.05, blockChance: 0.10, dodgeChance: 0.08, grappleChance: 0.05, kickRatio: 0.25, retreatHpThresh: 0.2, wobble: 0.6, groundPunchDelay: 1200, groundEscapeDelay: 1500 },
+    medium: { thinkMin: 350, thinkMax: 550, attackChance: 0.50, counterChance: 0.20, blockChance: 0.25, dodgeChance: 0.15, grappleChance: 0.10, kickRatio: 0.35, retreatHpThresh: 0.3, wobble: 0.3, groundPunchDelay: 800, groundEscapeDelay: 1000 },
+    hard:   { thinkMin: 150, thinkMax: 250, attackChance: 0.70, counterChance: 0.40, blockChance: 0.40, dodgeChance: 0.25, grappleChance: 0.15, kickRatio: 0.40, retreatHpThresh: 0.35, wobble: 0.12, groundPunchDelay: 500, groundEscapeDelay: 600 },
+};
+
 // ===== DEVICE DETECTION =====
 const IS_TOUCH_DEVICE = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 
@@ -432,8 +447,10 @@ function init() {
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
 
-    document.getElementById('start-btn').addEventListener('touchstart', (e) => { e.preventDefault(); startGame(); });
-    document.getElementById('start-btn').addEventListener('click', startGame);
+    document.getElementById('start-btn').addEventListener('touchstart', (e) => { e.preventDefault(); isVsAI = false; startGame(); });
+    document.getElementById('start-btn').addEventListener('click', () => { isVsAI = false; startGame(); });
+    document.getElementById('solo-btn').addEventListener('touchstart', (e) => { e.preventDefault(); showDifficulty(); });
+    document.getElementById('solo-btn').addEventListener('click', showDifficulty);
     document.getElementById('customize-btn').addEventListener('touchstart', (e) => { e.preventDefault(); showCustomize(); });
     document.getElementById('customize-btn').addEventListener('click', showCustomize);
     document.getElementById('custom-fight-btn').addEventListener('touchstart', (e) => { e.preventDefault(); startGame(); });
@@ -447,6 +464,15 @@ function init() {
     document.getElementById('exit-fight-btn').addEventListener('touchstart', (e) => { e.preventDefault(); showTitle(); });
     document.getElementById('exit-fight-btn').addEventListener('click', showTitle);
 
+    // Difficulty buttons
+    document.querySelectorAll('.diff-btn').forEach(btn => {
+        const handler = () => { aiDifficulty = btn.dataset.diff; isVsAI = true; startGame(); };
+        btn.addEventListener('touchstart', (e) => { e.preventDefault(); handler(); });
+        btn.addEventListener('click', handler);
+    });
+    document.getElementById('diff-back-btn').addEventListener('touchstart', (e) => { e.preventDefault(); showTitle(); });
+    document.getElementById('diff-back-btn').addEventListener('click', showTitle);
+
     setupCustomizeScreen();
 
     setupControls();
@@ -459,6 +485,7 @@ function init() {
         // Add key hints overlay to game screen
         const hints = document.createElement('div');
         hints.className = 'key-hints';
+        hints.id = 'key-hints';
         hints.innerHTML = '<span>P1: WASD move | C atk | V dodge | B grab</span><span>P2: Arrows move | . atk | , dodge | M grab</span>';
         document.getElementById('game-screen').appendChild(hints);
     }
@@ -487,7 +514,33 @@ function startGame() {
     document.getElementById('title-screen').classList.add('hidden');
     document.getElementById('customize-screen').classList.add('hidden');
     document.getElementById('gameover-screen').classList.add('hidden');
+    document.getElementById('difficulty-screen').classList.add('hidden');
     document.getElementById('game-screen').classList.remove('hidden');
+
+    // AI mode: hide P2 controls, update portrait label
+    if (isVsAI) {
+        document.getElementById('p2-controls').style.display = 'none';
+        document.getElementById('p2-portrait').textContent = 'CPU';
+    } else {
+        document.getElementById('p2-controls').style.display = '';
+        document.getElementById('p2-portrait').textContent = 'P2';
+    }
+
+    // Reset AI state
+    aiThinkTimer = 0;
+    aiState = 'approach';
+    aiBlockTimer = 0;
+    aiGroundRaceTimer = 0;
+
+    // Update key hints for AI mode
+    const hintsEl = document.getElementById('key-hints');
+    if (hintsEl) {
+        if (isVsAI) {
+            hintsEl.innerHTML = '<span>WASD move | C atk | V dodge | B grab</span>';
+        } else {
+            hintsEl.innerHTML = '<span>P1: WASD move | C atk | V dodge | B grab</span><span>P2: Arrows move | . atk | , dodge | M grab</span>';
+        }
+    }
 
     requestAnimationFrame(() => {
         resizeCanvas();
@@ -509,8 +562,17 @@ function showTitle() {
     document.getElementById('game-screen').classList.add('hidden');
     document.getElementById('gameover-screen').classList.add('hidden');
     document.getElementById('customize-screen').classList.add('hidden');
+    document.getElementById('difficulty-screen').classList.add('hidden');
     document.getElementById('title-screen').classList.remove('hidden');
+    // Restore P2 controls visibility
+    document.getElementById('p2-controls').style.display = '';
     game.screen = 'title';
+}
+
+function showDifficulty() {
+    document.getElementById('title-screen').classList.add('hidden');
+    document.getElementById('difficulty-screen').classList.remove('hidden');
+    game.screen = 'difficulty';
 }
 
 function showCustomize() {
@@ -624,20 +686,24 @@ function endRound(winner) {
     hitFlash('big');
     updateRoundIndicators();
 
+    const winLabel = (winner.id === 2 && isVsAI) ? 'CPU' : `PLAYER ${winner.id}`;
+
     if (game.roundWins[winner.id - 1] >= 2) {
         // Match over — start 3D victory cutscene after brief pause
-        showAnnouncement(`PLAYER ${winner.id} WINS THE MATCH!`, 1500);
+        showAnnouncement(`${winLabel} WINS THE MATCH!`, 1500);
         setTimeout(() => {
             startVictoryCutscene(winner);
         }, 1600);
     } else {
-        showAnnouncement(`PLAYER ${winner.id} WINS ROUND ${game.currentRound}!`, 1500);
+        showAnnouncement(`${winLabel} WINS ROUND ${game.currentRound}!`, 1500);
         setTimeout(() => {
             game.currentRound++;
             game.roundTimer = ROUND_TIME * 1000;
             resetPlayersForRound();
             game.screen = 'playing';
             game.groundRace = null;
+            aiThinkTimer = 0;
+            aiState = 'approach';
             showAnnouncement(`ROUND ${game.currentRound} — FIGHT!`, 1200);
         }, 2200);
     }
@@ -804,6 +870,7 @@ function setupJoysticks() {
 }
 
 function updateJoystickFromTouch(touch, playerNum, base, knob, isP2) {
+    if (isVsAI && playerNum === 2) return;
     const rect = base.getBoundingClientRect();
     const centerX = rect.left + rect.width / 2;
     const centerY = rect.top + rect.height / 2;
@@ -877,6 +944,7 @@ function setupControls() {
 
 function handleButtonDown(btn) {
     const playerNum = parseInt(btn.dataset.player);
+    if (isVsAI && playerNum === 2) return;
     const action = btn.dataset.action;
     const player = game.players[playerNum - 1];
     if (!player) return;
@@ -927,6 +995,7 @@ function handleButtonDown(btn) {
 
 function handleButtonUp(btn) {
     const playerNum = parseInt(btn.dataset.player);
+    if (isVsAI && playerNum === 2) return;
     const action = btn.dataset.action;
     const player = game.players[playerNum - 1];
     if (!player) return;
@@ -983,6 +1052,8 @@ function setupKeyboard() {
 }
 
 function updateKeyboardMovement(playerNum) {
+    // Block P2 keyboard input in AI mode
+    if (isVsAI && playerNum === 2) return;
     const player = game.players[playerNum - 1];
     if (!player) return;
 
@@ -1017,6 +1088,7 @@ function updateKeyboardMovement(playerNum) {
 }
 
 function handleKeyboardActionDown(playerNum, action) {
+    if (isVsAI && playerNum === 2) return;
     const player = game.players[playerNum - 1];
     if (!player) return;
     const now = Date.now();
@@ -1067,6 +1139,7 @@ function handleKeyboardActionDown(playerNum, action) {
 }
 
 function handleKeyboardActionUp(playerNum, action) {
+    if (isVsAI && playerNum === 2) return;
     const player = game.players[playerNum - 1];
     if (!player) return;
     const kb = kbAction[playerNum];
@@ -1444,7 +1517,8 @@ function endCutscene() {
     game.matchOver = true;
     document.getElementById('game-screen').classList.add('hidden');
     document.getElementById('gameover-screen').classList.remove('hidden');
-    document.getElementById('winner-text').textContent = `PLAYER ${winnerId} WINS!`;
+    const winLabel = (winnerId === 2 && isVsAI) ? 'CPU' : `PLAYER ${winnerId}`;
+    document.getElementById('winner-text').textContent = isVsAI ? (winnerId === 1 ? 'YOU WIN!' : 'CPU WINS!') : `PLAYER ${winnerId} WINS!`;
 }
 
 function renderCutscene() {
@@ -1625,9 +1699,10 @@ function renderCutscene() {
         ctx.font = "bold 48px 'Bangers', Impact, sans-serif";
         ctx.strokeStyle = '#000';
         ctx.lineWidth = 8;
-        ctx.strokeText(`PLAYER ${cs.winnerId} WINS!`, 0, 0);
+        const csWinLabel = isVsAI ? (cs.winnerId === 1 ? 'YOU WIN!' : 'CPU WINS!') : `PLAYER ${cs.winnerId} WINS!`;
+        ctx.strokeText(csWinLabel, 0, 0);
         ctx.fillStyle = '#ffdd00';
-        ctx.fillText(`PLAYER ${cs.winnerId} WINS!`, 0, 0);
+        ctx.fillText(csWinLabel, 0, 0);
 
         // Sub text
         ctx.shadowBlur = 0;
@@ -1677,8 +1752,180 @@ function gameLoop(timestamp) {
     requestAnimationFrame(gameLoop);
 }
 
+// ===== AI SYSTEM =====
+function updateAI(dt) {
+    if (!isVsAI) return;
+    const ai = game.players[1]; // AI is always player 2
+    const human = game.players[0];
+    if (!ai || !human) return;
+    const settings = AI_SETTINGS[aiDifficulty];
+
+    // Handle blocking release timer
+    if (aiBlockTimer > 0) {
+        aiBlockTimer -= dt;
+        if (aiBlockTimer <= 0) {
+            ai.isBlocking = false;
+            if (ai.state === 'blocking') ai.state = 'idle';
+        }
+    }
+
+    // Think cycle — AI makes decisions on a timer, not every frame
+    aiThinkTimer -= dt;
+    if (aiThinkTimer > 0) return;
+    aiThinkTimer = settings.thinkMin + Math.random() * (settings.thinkMax - settings.thinkMin);
+
+    // Don't act if in a non-controllable state
+    if (ai.state === 'hit' || ai.state === 'grounded' || ai.state === 'grappling' || ai.state === 'victory') {
+        ai.joystick.active = false;
+        ai.joystick.dx = 0;
+        ai.joystick.dy = 0;
+        return;
+    }
+
+    // === Situation Assessment ===
+    const distance = dist2D(ai, human);
+    const dx = human.x - ai.x;
+    const dy = human.y - ai.y;
+    const dirX = dx / (distance || 1);
+    const dirY = dy / (distance || 1);
+    const aiHpPct = ai.hp / MAX_HP;
+    const humanHpPct = human.hp / MAX_HP;
+    const onCooldown = ai.globalCooldownUntil && Date.now() < ai.globalCooldownUntil;
+    const opponentAttacking = human.state === 'punching' || human.state === 'kicking';
+    const opponentGrappling = human.state === 'grappling';
+
+    // === State Machine Transitions ===
+    if (aiHpPct < settings.retreatHpThresh && distance < 120) {
+        aiState = 'retreat';
+    } else if (opponentAttacking && distance < 160) {
+        aiState = 'defend';
+    } else if (distance > 160) {
+        aiState = 'approach';
+    } else if (!onCooldown && distance <= RANGE.kick + 20) {
+        aiState = 'attack';
+    } else {
+        aiState = onCooldown ? 'idle' : 'approach';
+    }
+
+    // === Movement ===
+    let moveX = 0, moveY = 0;
+    const wobbleX = (Math.random() - 0.5) * settings.wobble;
+    const wobbleY = (Math.random() - 0.5) * settings.wobble;
+
+    switch (aiState) {
+        case 'approach':
+            moveX = dirX + wobbleX;
+            moveY = dirY + wobbleY;
+            break;
+        case 'retreat':
+            moveX = -dirX + wobbleX;
+            moveY = -dirY + wobbleY;
+            break;
+        case 'defend':
+            // Slight retreat while defending
+            moveX = -dirX * 0.3 + wobbleX;
+            moveY = -dirY * 0.3 + wobbleY;
+            break;
+        case 'idle':
+            // Slight circling movement
+            moveX = -dirY * 0.4 + wobbleX;
+            moveY = dirX * 0.4 + wobbleY;
+            break;
+        case 'attack':
+            // Close in on opponent
+            if (distance > RANGE.punch) {
+                moveX = dirX * 0.7 + wobbleX;
+                moveY = dirY * 0.7 + wobbleY;
+            } else {
+                moveX = wobbleX * 0.5;
+                moveY = wobbleY * 0.5;
+            }
+            break;
+    }
+
+    // Normalize movement
+    const moveMag = Math.sqrt(moveX * moveX + moveY * moveY);
+    if (moveMag > 0.15) {
+        ai.joystick.active = true;
+        ai.joystick.dx = moveX / moveMag;
+        ai.joystick.dy = moveY / moveMag;
+    } else {
+        ai.joystick.active = false;
+        ai.joystick.dx = 0;
+        ai.joystick.dy = 0;
+    }
+
+    // === Combat Decisions ===
+    if (onCooldown) return;
+    if (ai.state !== 'idle' && ai.state !== 'walking') return;
+
+    // Defensive reactions to opponent attacks
+    if (opponentAttacking && distance < RANGE.kick + 30) {
+        const roll = Math.random();
+        if (roll < settings.counterChance) {
+            executeAction(ai, 'counter');
+            return;
+        } else if (roll < settings.counterChance + settings.blockChance) {
+            executeAction(ai, 'block');
+            aiBlockTimer = 400 + Math.random() * 300; // Hold block briefly
+            return;
+        } else if (roll < settings.counterChance + settings.blockChance + settings.dodgeChance) {
+            executeAction(ai, 'dodge');
+            return;
+        }
+    }
+
+    // Offensive actions
+    if (aiState === 'attack' || aiState === 'approach') {
+        // Grapple (very close)
+        if (distance <= RANGE.grapple && Math.random() < settings.grappleChance) {
+            executeAction(ai, 'grapple');
+            return;
+        }
+
+        // Punch or kick
+        if (distance <= RANGE.kick + 15 && Math.random() < settings.attackChance) {
+            if (distance <= RANGE.punch && Math.random() > settings.kickRatio) {
+                executeAction(ai, 'punch');
+            } else {
+                executeAction(ai, 'kick');
+            }
+            return;
+        }
+    }
+}
+
+// AI Ground Race handling
+function updateAIGroundRace(dt) {
+    if (!isVsAI || !game.groundRace || game.groundRace.resolved) return;
+    const gr = game.groundRace;
+    const settings = AI_SETTINGS[aiDifficulty];
+    const ai = game.players[1];
+
+    aiGroundRaceTimer -= dt;
+    if (aiGroundRaceTimer > 0) return;
+
+    if (ai.id === gr.attacker) {
+        // AI is attacker: punch when ready
+        if (gr.atkCooldown <= 0) {
+            handleGroundRaceInput(ai, 'punch');
+            aiGroundRaceTimer = settings.groundPunchDelay + Math.random() * 200;
+        } else {
+            aiGroundRaceTimer = 100;
+        }
+    } else {
+        // AI is defender: mash to escape
+        handleGroundRaceInput(ai, 'dodge');
+        aiGroundRaceTimer = settings.groundEscapeDelay + Math.random() * 300;
+    }
+}
+
 function update(dt) {
     game.time += dt;
+
+    // AI updates
+    if (isVsAI && game.screen === 'playing') updateAI(dt);
+    if (isVsAI && game.screen === 'groundRace') updateAIGroundRace(dt);
 
     // Round timer countdown
     if (game.screen === 'playing' && game.roundTimer > 0) {
