@@ -844,6 +844,9 @@
     function showGame() {
         GameShell.showScreen('game-screen');
 
+        // Resize canvas now that game screen is visible
+        resizeCanvas();
+
         // Show/hide 2P HUD elements
         var sep = document.getElementById('hud-sep');
         var hudP2 = document.getElementById('hud-p2');

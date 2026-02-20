@@ -309,6 +309,8 @@
         running = true;
         skidMarks = [];
 
+        // Show game screen FIRST so container has dimensions
+        GameShell.showScreen('game-screen');
         resizeCanvas();
 
         // Pick random track
@@ -334,8 +336,6 @@
         // Update HUD
         updateHUD();
 
-        // Show game screen and start countdown
-        GameShell.showScreen('game-screen');
         startCountdown();
     }
 
