@@ -20,6 +20,12 @@
     var COUNTDOWN_SECS = 3;
     var DT_CAP = 50;                 // max delta time in ms
 
+    // ---- Visual Enhancement State ----
+    var screenShake = { x: 0, y: 0, intensity: 0, decay: 0.92 };
+    var confettiParticles = [];
+    var winnerGlow = { active: false, index: -1, intensity: 0 };
+    var arenaGlowPhase = 0;
+
     // ---- State ----
     var canvas, ctx;
     var W, H;                        // canvas dimensions
@@ -49,6 +55,39 @@
         return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     }
 
+    // ---- Color Utilities for Metallic Gradients ----
+    function hexToRgb(hex) {
+        hex = hex.replace(/^#/, '');
+        if (hex.length === 3) {
+            hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+        }
+        var num = parseInt(hex, 16);
+        return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+    }
+
+    function rgbToString(rgb, a) {
+        if (a !== undefined) {
+            return 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',' + a + ')';
+        }
+        return 'rgb(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ')';
+    }
+
+    function lightenColor(rgb, amount) {
+        return {
+            r: Math.min(255, rgb.r + Math.floor((255 - rgb.r) * amount)),
+            g: Math.min(255, rgb.g + Math.floor((255 - rgb.g) * amount)),
+            b: Math.min(255, rgb.b + Math.floor((255 - rgb.b) * amount))
+        };
+    }
+
+    function darkenColor(rgb, amount) {
+        return {
+            r: Math.max(0, Math.floor(rgb.r * (1 - amount))),
+            g: Math.max(0, Math.floor(rgb.g * (1 - amount))),
+            b: Math.max(0, Math.floor(rgb.b * (1 - amount)))
+        };
+    }
+
     // ---- Top Factory ----
     function createTop(index, x, y) {
         return {
@@ -68,10 +107,27 @@
     }
 
     // ---- Particle Factory ----
-    function spawnSparks(x, y, count) {
+    function spawnSparks(x, y, count, nx, ny) {
+        // nx, ny: optional collision normal direction for directional sparks
         for (var i = 0; i < count; i++) {
-            var angle = Math.random() * Math.PI * 2;
+            var angle;
+            if (nx !== undefined && ny !== undefined) {
+                // Directional sparks: spread around the collision normal
+                var baseAngle = Math.atan2(ny, nx);
+                angle = baseAngle + (Math.random() - 0.5) * Math.PI * 0.8;
+            } else {
+                angle = Math.random() * Math.PI * 2;
+            }
             var speed = 80 + Math.random() * 200;
+            var colorRand = Math.random();
+            var sparkColor;
+            if (colorRand < 0.3) {
+                sparkColor = '#ffffff';
+            } else if (colorRand < 0.65) {
+                sparkColor = '#ffdd00';
+            } else {
+                sparkColor = '#ff8800';
+            }
             particles.push({
                 x: x,
                 y: y,
@@ -80,7 +136,8 @@
                 life: 0.3 + Math.random() * 0.3,
                 maxLife: 0.3 + Math.random() * 0.3,
                 size: 2 + Math.random() * 3,
-                color: Math.random() < 0.5 ? '#ffdd00' : '#ff8800'
+                color: sparkColor,
+                type: 'spark'
             });
         }
     }
@@ -97,9 +154,39 @@
                 life: 0.5 + Math.random() * 0.5,
                 maxLife: 0.5 + Math.random() * 0.5,
                 size: 3 + Math.random() * 4,
-                color: Math.random() < 0.3 ? '#ffffff' : (Math.random() < 0.5 ? '#ffdd00' : '#ff4444')
+                color: Math.random() < 0.3 ? '#ffffff' : (Math.random() < 0.5 ? '#ffdd00' : '#ff4444'),
+                type: 'spark'
             });
         }
+    }
+
+    // ---- Confetti Spawner ----
+    function spawnConfetti(x, y, count) {
+        var confettiColors = ['#ff4444', '#44ff44', '#4488ff', '#ffdd00', '#ff88ff', '#44ffff', '#ffffff', '#ff8800'];
+        for (var i = 0; i < count; i++) {
+            var angle = Math.random() * Math.PI * 2;
+            var speed = 100 + Math.random() * 300;
+            confettiParticles.push({
+                x: x,
+                y: y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed - 100 - Math.random() * 150,
+                life: 1.5 + Math.random() * 1.0,
+                maxLife: 1.5 + Math.random() * 1.0,
+                size: 3 + Math.random() * 5,
+                color: confettiColors[Math.floor(Math.random() * confettiColors.length)],
+                rotation: Math.random() * Math.PI * 2,
+                rotSpeed: (Math.random() - 0.5) * 10,
+                gravity: 200 + Math.random() * 100,
+                width: 4 + Math.random() * 6,
+                height: 2 + Math.random() * 3
+            });
+        }
+    }
+
+    // ---- Screen Shake Trigger ----
+    function triggerScreenShake(intensity) {
+        screenShake.intensity = Math.min(screenShake.intensity + intensity, 15);
     }
 
     // ---- Resize ----
@@ -126,6 +213,8 @@
             createTop(1, arenaX + offset, arenaY)
         ];
         particles = [];
+        confettiParticles = [];
+        winnerGlow = { active: false, index: -1, intensity: 0 };
         roundWinner = -1;
         roundEndTimer = 0;
     }
@@ -371,6 +460,25 @@
     function update(dt) {
         if (paused || countdownTimer > 0 || !gameRunning) return;
 
+        // Update arena glow phase
+        arenaGlowPhase += dt * 3;
+
+        // Update screen shake
+        if (screenShake.intensity > 0.1) {
+            screenShake.x = (Math.random() - 0.5) * 2 * screenShake.intensity;
+            screenShake.y = (Math.random() - 0.5) * 2 * screenShake.intensity;
+            screenShake.intensity *= Math.pow(screenShake.decay, dt * 60);
+        } else {
+            screenShake.x = 0;
+            screenShake.y = 0;
+            screenShake.intensity = 0;
+        }
+
+        // Update winner glow
+        if (winnerGlow.active) {
+            winnerGlow.intensity = Math.min(winnerGlow.intensity + dt * 3, 1);
+        }
+
         // Handle round end timer
         if (roundWinner >= 0) {
             roundEndTimer -= dt;
@@ -378,6 +486,7 @@
                 finishRound();
             }
             updateParticles(dt);
+            updateConfetti(dt);
             return;
         }
 
@@ -447,6 +556,7 @@
                     top.spin -= 3; // lose spin on wall hit
                     CGameAudio.play('bounce');
                     spawnSparks(top.x + nx2 * top.radius, top.y + ny2 * top.radius, 3);
+                    triggerScreenShake(Math.min(Math.sqrt(dot * dot) * 0.02, 6));
                 }
             }
 
@@ -540,17 +650,24 @@
                     t1.flashTimer = 0.1;
                     t2.flashTimer = 0.1;
 
-                    // Sparks at collision point
+                    // Directional sparks at collision point
                     var mx = (t1.x + t2.x) / 2;
                     var my = (t1.y + t2.y) / 2;
-                    spawnSparks(mx, my, SPARK_COUNT);
+                    // Spawn sparks flying away from both tops
+                    spawnSparks(mx, my, SPARK_COUNT / 2, cnx, cny);
+                    spawnSparks(mx, my, SPARK_COUNT / 2, -cnx, -cny);
                     CGameAudio.play('hit');
+
+                    // Screen shake proportional to impact speed
+                    var impactSpeed = Math.abs(relDot);
+                    triggerScreenShake(Math.min(impactSpeed * 0.03, 10));
                 }
             }
         }
 
         // Update particles
         updateParticles(dt);
+        updateConfetti(dt);
 
         // Update spin bars
         document.getElementById('spin-bar-p1').style.width = (tops[0].spin / MAX_SPIN * 100) + '%';
@@ -560,6 +677,10 @@
         if (aliveCount <= 1 && roundWinner < 0) {
             if (aliveCount === 1) {
                 roundWinner = aliveIdx;
+                // Spawn confetti around winner
+                var winner = tops[aliveIdx];
+                spawnConfetti(winner.x, winner.y, 60);
+                winnerGlow = { active: true, index: aliveIdx, intensity: 0 };
             } else {
                 // Both died - draw, nobody scores
                 roundWinner = -2;
@@ -578,6 +699,21 @@
             p.life -= dt;
             if (p.life <= 0) {
                 particles.splice(i, 1);
+            }
+        }
+    }
+
+    function updateConfetti(dt) {
+        for (var i = confettiParticles.length - 1; i >= 0; i--) {
+            var p = confettiParticles[i];
+            p.vy += p.gravity * dt;
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.vx *= 0.98;
+            p.rotation += p.rotSpeed * dt;
+            p.life -= dt;
+            if (p.life <= 0) {
+                confettiParticles.splice(i, 1);
             }
         }
     }
@@ -651,11 +787,20 @@
         ctx.fillStyle = getCSSColor('--canvas-bg');
         ctx.fillRect(0, 0, W, H);
 
+        // Apply screen shake
+        ctx.save();
+        ctx.translate(screenShake.x, screenShake.y);
+
         drawArena();
 
         // Trails
         for (var i = 0; i < 2; i++) {
             drawTrail(tops[i]);
+        }
+
+        // Speed blur / motion lines
+        for (var ib = 0; ib < 2; ib++) {
+            drawSpeedBlur(tops[ib]);
         }
 
         // Tops
@@ -666,11 +811,19 @@
         // Particles
         drawParticles();
 
-        // Touch joysticks
+        // Confetti
+        drawConfetti();
+
+        // End screen shake transform
+        ctx.restore();
+
+        // Touch joysticks (drawn outside shake transform)
         drawJoysticks();
     }
 
     function drawArena() {
+        var isDark = document.body.getAttribute('data-theme') !== 'light';
+
         // Outer shadow
         ctx.save();
         ctx.beginPath();
@@ -678,12 +831,45 @@
         ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
         ctx.fill();
 
-        // Arena base
+        // Arena base with radial gradient for depth
+        var baseGrad = ctx.createRadialGradient(arenaX, arenaY - arenaR * 0.15, arenaR * 0.1, arenaX, arenaY, arenaR);
+        if (isDark) {
+            baseGrad.addColorStop(0, '#252545');
+            baseGrad.addColorStop(0.6, '#1a1a30');
+            baseGrad.addColorStop(1, '#111125');
+        } else {
+            baseGrad.addColorStop(0, '#e0e4f0');
+            baseGrad.addColorStop(0.6, '#d0d4e0');
+            baseGrad.addColorStop(1, '#b8bcc8');
+        }
         ctx.beginPath();
         ctx.arc(arenaX, arenaY, arenaR, 0, Math.PI * 2);
-        var isDark = document.body.getAttribute('data-theme') !== 'light';
-        ctx.fillStyle = isDark ? '#1a1a30' : '#d0d4e0';
+        ctx.fillStyle = baseGrad;
         ctx.fill();
+
+        // Textured floor: concentric rings with alternating subtle shade differences
+        var ringCount = 14;
+        for (var r = ringCount; r >= 1; r--) {
+            var ringR = (arenaR / (ringCount + 1)) * r;
+            ctx.beginPath();
+            ctx.arc(arenaX, arenaY, ringR, 0, Math.PI * 2);
+            if (r % 2 === 0) {
+                ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.018)' : 'rgba(0, 0, 0, 0.018)';
+            } else {
+                ctx.fillStyle = isDark ? 'rgba(0, 0, 0, 0.025)' : 'rgba(255, 255, 255, 0.025)';
+            }
+            ctx.fill();
+        }
+
+        // Concentric ring lines (visible guide rings)
+        ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)';
+        ctx.lineWidth = 1;
+        var guideRingCount = 5;
+        for (var gr = 1; gr <= guideRingCount; gr++) {
+            ctx.beginPath();
+            ctx.arc(arenaX, arenaY, (arenaR / (guideRingCount + 1)) * gr, 0, Math.PI * 2);
+            ctx.stroke();
+        }
 
         // Danger zone ring (red tint near edge)
         var dangerStart = arenaR * 0.7;
@@ -696,15 +882,18 @@
         ctx.fillStyle = gradient;
         ctx.fill();
 
-        // Concentric rings
-        ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)';
-        ctx.lineWidth = 1;
-        var ringCount = 5;
-        for (var r = 1; r <= ringCount; r++) {
-            ctx.beginPath();
-            ctx.arc(arenaX, arenaY, (arenaR / (ringCount + 1)) * r, 0, Math.PI * 2);
-            ctx.stroke();
-        }
+        // Pulsing red glow on arena edge
+        var pulseVal = 0.5 + 0.5 * Math.sin(arenaGlowPhase);
+        var edgeGlowAlpha = 0.15 + pulseVal * 0.2;
+        ctx.beginPath();
+        ctx.arc(arenaX, arenaY, arenaR, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255, 40, 40, ' + edgeGlowAlpha + ')';
+        ctx.lineWidth = 4 + pulseVal * 3;
+        ctx.shadowColor = 'rgba(255, 40, 40, ' + (edgeGlowAlpha * 0.8) + ')';
+        ctx.shadowBlur = 12 + pulseVal * 10;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        ctx.shadowColor = 'transparent';
 
         // Center dot
         ctx.beginPath();
@@ -712,7 +901,7 @@
         ctx.fillStyle = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.1)';
         ctx.fill();
 
-        // Arena border ring
+        // Arena border ring (on top of glow)
         ctx.beginPath();
         ctx.arc(arenaX, arenaY, arenaR, 0, Math.PI * 2);
         ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.15)';
@@ -725,17 +914,63 @@
     function drawTrail(top) {
         if (!top.alive || top.trail.length < 2) return;
         var color = top.index === 0 ? getCSSColor('--p1-color') : getCSSColor('--p2-color');
+        var rgb = hexToRgb(color);
+        var spinRatio = top.spin / MAX_SPIN;
 
         ctx.save();
         ctx.lineCap = 'round';
         for (var i = 1; i < top.trail.length; i++) {
-            var alpha = (i / top.trail.length) * 0.3 * (top.spin / MAX_SPIN);
+            var progress = i / top.trail.length;
+            var alpha = progress * 0.4 * spinRatio;
+            // Wider when spinning faster
+            var width = top.radius * (0.3 + spinRatio * 0.5) * progress;
             ctx.beginPath();
             ctx.moveTo(top.trail[i - 1].x, top.trail[i - 1].y);
             ctx.lineTo(top.trail[i].x, top.trail[i].y);
-            ctx.strokeStyle = color;
-            ctx.globalAlpha = alpha;
-            ctx.lineWidth = top.radius * 0.6 * (i / top.trail.length);
+            ctx.strokeStyle = rgbToString(rgb, alpha);
+            ctx.lineWidth = width;
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+
+    function drawSpeedBlur(top) {
+        if (!top.alive) return;
+        var speed = Math.sqrt(top.vx * top.vx + top.vy * top.vy);
+        var speedThreshold = 80;
+        if (speed < speedThreshold) return;
+
+        var speedFactor = Math.min((speed - speedThreshold) / 300, 1);
+        var color = top.index === 0 ? getCSSColor('--p1-color') : getCSSColor('--p2-color');
+        var rgb = hexToRgb(color);
+        var x = top.x + top.wobbleOffset;
+        var y = top.y + top.wobbleOffset;
+
+        // Normalize velocity to get motion direction
+        var nvx = -top.vx / speed;
+        var nvy = -top.vy / speed;
+
+        ctx.save();
+        // Draw motion lines behind the top
+        var lineCount = 3 + Math.floor(speedFactor * 4);
+        for (var i = 0; i < lineCount; i++) {
+            // Perpendicular offset for spread
+            var perpX = -nvy;
+            var perpY = nvx;
+            var spreadOffset = (i / (lineCount - 1) - 0.5) * top.radius * 1.4;
+
+            var startX = x + perpX * spreadOffset + nvx * top.radius;
+            var startY = y + perpY * spreadOffset + nvy * top.radius;
+            var lineLen = 10 + speedFactor * 30 + Math.random() * 10;
+            var endX = startX + nvx * lineLen;
+            var endY = startY + nvy * lineLen;
+
+            var alpha = speedFactor * 0.3 * (1 - Math.abs(i / (lineCount - 1) - 0.5) * 2);
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(endX, endY);
+            ctx.strokeStyle = rgbToString(rgb, alpha);
+            ctx.lineWidth = 1.5;
             ctx.stroke();
         }
         ctx.restore();
@@ -749,26 +984,37 @@
         var r = top.radius;
         var spinRatio = top.spin / MAX_SPIN;
         var baseColor = top.index === 0 ? getCSSColor('--p1-color') : getCSSColor('--p2-color');
-        var lightColor = top.index === 0 ? getCSSColor('--p1-light') : getCSSColor('--p2-light');
+        var baseRgb = hexToRgb(baseColor);
+        var highlightRgb = lightenColor(baseRgb, 0.7);
+        var darkRgb = darkenColor(baseRgb, 0.5);
 
         ctx.save();
 
-        // Glow when flash
+        // Winner glow
+        if (winnerGlow.active && winnerGlow.index === top.index) {
+            var glowPulse = 0.7 + 0.3 * Math.sin(Date.now() * 0.008);
+            var glowAlpha = winnerGlow.intensity * glowPulse * 0.6;
+            ctx.beginPath();
+            ctx.arc(x, y, r + 18, 0, Math.PI * 2);
+            ctx.fillStyle = rgbToString(highlightRgb, glowAlpha * 0.3);
+            ctx.shadowColor = rgbToString(baseRgb, glowAlpha);
+            ctx.shadowBlur = 30 * winnerGlow.intensity;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.shadowColor = 'transparent';
+        }
+
+        // Glow when flash (collision hit)
         if (top.flashTimer > 0) {
             ctx.beginPath();
             ctx.arc(x, y, r + 8, 0, Math.PI * 2);
             ctx.fillStyle = 'rgba(255, 255, 255, ' + (top.flashTimer * 3) + ')';
+            ctx.shadowColor = 'rgba(255, 255, 255, ' + (top.flashTimer * 2) + ')';
+            ctx.shadowBlur = 15;
             ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.shadowColor = 'transparent';
         }
-
-        // Spin ring (shows remaining spin as arc)
-        ctx.beginPath();
-        ctx.arc(x, y, r + 4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * spinRatio);
-        ctx.strokeStyle = baseColor;
-        ctx.lineWidth = 3;
-        ctx.globalAlpha = 0.7;
-        ctx.stroke();
-        ctx.globalAlpha = 1;
 
         // Spin ring background track
         ctx.beginPath();
@@ -777,21 +1023,71 @@
         ctx.lineWidth = 3;
         ctx.stroke();
 
-        // Main body
-        var bodyGrad = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r);
-        bodyGrad.addColorStop(0, lightColor);
-        bodyGrad.addColorStop(1, baseColor);
+        // Spin ring (shows remaining spin as arc) with glow and pulse
+        var spinPulse = 0.7 + 0.3 * Math.sin(Date.now() * 0.005 * (1 + spinRatio * 3));
+        ctx.beginPath();
+        ctx.arc(x, y, r + 4, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * spinRatio);
+        ctx.strokeStyle = baseColor;
+        ctx.lineWidth = 3;
+        ctx.shadowColor = baseColor;
+        ctx.shadowBlur = 6 + spinPulse * 8 * spinRatio;
+        ctx.globalAlpha = 0.7 + spinPulse * 0.3 * spinRatio;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0;
+        ctx.shadowColor = 'transparent';
+
+        // Speed lines / motion blur around top when spinning fast
+        if (spinRatio > 0.4) {
+            var lineAlpha = (spinRatio - 0.4) / 0.6 * 0.25;
+            var speedLineCount = 6 + Math.floor(spinRatio * 6);
+            ctx.globalAlpha = lineAlpha;
+            ctx.strokeStyle = rgbToString(highlightRgb, 1);
+            ctx.lineWidth = 1;
+            for (var sl = 0; sl < speedLineCount; sl++) {
+                var slAngle = top.angle + (sl / speedLineCount) * Math.PI * 2;
+                var slR1 = r + 2;
+                var slR2 = r + 5 + spinRatio * 6;
+                var arcSpread = 0.15 + spinRatio * 0.2;
+                ctx.beginPath();
+                ctx.arc(x, y, slR1 + (slR2 - slR1) * 0.5, slAngle - arcSpread, slAngle + arcSpread);
+                ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        // Main body: metallic gradient (highlight offset from center)
+        var highlightOffX = -r * 0.3;
+        var highlightOffY = -r * 0.3;
+        var bodyGrad = ctx.createRadialGradient(
+            x + highlightOffX, y + highlightOffY, r * 0.05,
+            x, y, r
+        );
+        bodyGrad.addColorStop(0, rgbToString(lightenColor(baseRgb, 0.85)));  // bright highlight
+        bodyGrad.addColorStop(0.25, rgbToString(lightenColor(baseRgb, 0.4)));
+        bodyGrad.addColorStop(0.55, rgbToString(baseRgb));
+        bodyGrad.addColorStop(0.85, rgbToString(darkenColor(baseRgb, 0.3)));
+        bodyGrad.addColorStop(1, rgbToString(darkRgb));  // dark edge
+
         ctx.beginPath();
         ctx.arc(x, y, r, 0, Math.PI * 2);
         ctx.fillStyle = bodyGrad;
         ctx.fill();
 
-        // Inner ring
-        ctx.beginPath();
-        ctx.arc(x, y, r * 0.65, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
+        // Concentric groove rings on top surface
+        var grooveCount = 4;
+        for (var gi = 1; gi <= grooveCount; gi++) {
+            var grooveR = r * (gi / (grooveCount + 1));
+            ctx.beginPath();
+            ctx.arc(x, y, grooveR, 0, Math.PI * 2);
+            if (gi % 2 === 0) {
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+            } else {
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
+            }
+            ctx.lineWidth = 0.8;
+            ctx.stroke();
+        }
 
         // Spinning cross lines (shows rotation)
         ctx.translate(x, y);
@@ -806,10 +1102,14 @@
             ctx.stroke();
         }
 
-        // Center dot
+        // Center dot with metallic specular highlight
+        var centerGrad = ctx.createRadialGradient(-1, -1, 0, 0, 0, 4);
+        centerGrad.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
+        centerGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.6)');
+        centerGrad.addColorStop(1, 'rgba(200, 200, 200, 0.3)');
         ctx.beginPath();
-        ctx.arc(0, 0, 3, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.arc(0, 0, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = centerGrad;
         ctx.fill();
 
         ctx.restore();
@@ -831,10 +1131,32 @@
             var p = particles[i];
             var alpha = p.life / p.maxLife;
             ctx.globalAlpha = alpha;
+            // Add glow to spark particles
+            ctx.shadowColor = p.color;
+            ctx.shadowBlur = 6 * alpha;
             ctx.fillStyle = p.color;
             ctx.beginPath();
             ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
             ctx.fill();
+        }
+        ctx.shadowBlur = 0;
+        ctx.shadowColor = 'transparent';
+        ctx.restore();
+    }
+
+    function drawConfetti() {
+        if (confettiParticles.length === 0) return;
+        ctx.save();
+        for (var i = 0; i < confettiParticles.length; i++) {
+            var p = confettiParticles[i];
+            var alpha = Math.min(1, p.life / (p.maxLife * 0.3));
+            ctx.globalAlpha = alpha;
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.rotate(p.rotation);
+            ctx.fillStyle = p.color;
+            ctx.fillRect(-p.width / 2, -p.height / 2, p.width, p.height);
+            ctx.restore();
         }
         ctx.restore();
     }

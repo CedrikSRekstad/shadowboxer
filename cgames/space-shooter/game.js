@@ -58,6 +58,12 @@
     var touchJoystick = { active: false, id: null, cx: 0, cy: 0, dx: 0, dy: 0 };
     var touchFiring = false;
 
+    // ── Visual FX State ──
+    var screenShake = { x: 0, y: 0, intensity: 0 };
+    var shockwaves = [];
+    var nebulaLayer = []; // pre-computed nebula cloud positions
+    var starLayers = [[], [], []]; // 3 parallax layers
+
     // ── Helpers ──
     function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
     function rand(lo, hi) { return Math.random() * (hi - lo) + lo; }
@@ -70,9 +76,69 @@
         return Math.sqrt(dx * dx + dy * dy);
     }
 
-    // ── Stars ──
+    // ── Color helpers for gradients ──
+    function hexToRgb(hex) {
+        hex = hex.replace('#', '');
+        if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+        var r = parseInt(hex.substring(0, 2), 16);
+        var g = parseInt(hex.substring(2, 4), 16);
+        var b = parseInt(hex.substring(4, 6), 16);
+        return { r: r, g: g, b: b };
+    }
+
+    function lightenColor(hex, amount) {
+        var c = hexToRgb(hex);
+        c.r = Math.min(255, c.r + amount);
+        c.g = Math.min(255, c.g + amount);
+        c.b = Math.min(255, c.b + amount);
+        return 'rgb(' + c.r + ',' + c.g + ',' + c.b + ')';
+    }
+
+    function darkenColor(hex, amount) {
+        var c = hexToRgb(hex);
+        c.r = Math.max(0, c.r - amount);
+        c.g = Math.max(0, c.g - amount);
+        c.b = Math.max(0, c.b - amount);
+        return 'rgb(' + c.r + ',' + c.g + ',' + c.b + ')';
+    }
+
+    // ── Parallax Stars & Nebula ──
     function initStars() {
         stars = [];
+        starLayers = [[], [], []];
+
+        // Layer 0: far, slow, small, dim
+        for (var i = 0; i < 40; i++) {
+            starLayers[0].push({
+                x: rand(0, CANVAS_W),
+                y: rand(0, CANVAS_H),
+                s: rand(0.5, 1.2),
+                speed: rand(20, 50),
+                brightness: rand(0.15, 0.35)
+            });
+        }
+        // Layer 1: mid
+        for (var i = 0; i < 30; i++) {
+            starLayers[1].push({
+                x: rand(0, CANVAS_W),
+                y: rand(0, CANVAS_H),
+                s: rand(1.0, 2.0),
+                speed: rand(60, 110),
+                brightness: rand(0.3, 0.6)
+            });
+        }
+        // Layer 2: near, fast, bright
+        for (var i = 0; i < 20; i++) {
+            starLayers[2].push({
+                x: rand(0, CANVAS_W),
+                y: rand(0, CANVAS_H),
+                s: rand(1.5, 2.8),
+                speed: rand(120, 200),
+                brightness: rand(0.5, 0.9)
+            });
+        }
+
+        // Legacy stars array (keep for compat)
         for (var i = 0; i < STAR_COUNT; i++) {
             stars.push({
                 x: rand(0, CANVAS_W),
@@ -81,9 +147,47 @@
                 speed: rand(40, 160)
             });
         }
+
+        // Generate nebula cloud positions
+        nebulaLayer = [];
+        for (var i = 0; i < 5; i++) {
+            nebulaLayer.push({
+                x: rand(0, CANVAS_W),
+                y: rand(0, CANVAS_H),
+                radius: rand(80, 180),
+                color: ['#1a0033', '#001a33', '#0d1a2e', '#1a0a2e', '#0a1a1a'][i],
+                hue: rand(0, 360),
+                speed: rand(5, 15),
+                alpha: rand(0.04, 0.1)
+            });
+        }
     }
 
     function updateStars(dt) {
+        // Update parallax layers
+        for (var layer = 0; layer < 3; layer++) {
+            var arr = starLayers[layer];
+            for (var i = 0; i < arr.length; i++) {
+                var s = arr[i];
+                s.y += s.speed * dt;
+                if (s.y > CANVAS_H) {
+                    s.y = -2;
+                    s.x = rand(0, CANVAS_W);
+                }
+            }
+        }
+
+        // Update nebula clouds (slow drift)
+        for (var i = 0; i < nebulaLayer.length; i++) {
+            var n = nebulaLayer[i];
+            n.y += n.speed * dt;
+            if (n.y - n.radius > CANVAS_H) {
+                n.y = -n.radius;
+                n.x = rand(0, CANVAS_W);
+            }
+        }
+
+        // Legacy stars update (kept for compatibility)
         for (var i = 0; i < stars.length; i++) {
             var s = stars[i];
             s.y += s.speed * dt;
@@ -94,14 +198,101 @@
         }
     }
 
-    function drawStars() {
-        ctx.fillStyle = '#ffffff';
-        for (var i = 0; i < stars.length; i++) {
-            var s = stars[i];
-            ctx.globalAlpha = 0.3 + s.s * 0.25;
-            ctx.fillRect(s.x, s.y, s.s, s.s);
+    function drawBackground() {
+        var style = getComputedStyle(document.documentElement);
+        var bgColor = style.getPropertyValue('--canvas-bg').trim() || '#0d0d1a';
+        ctx.fillStyle = bgColor;
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+        // Draw nebula clouds (soft radial gradients)
+        for (var i = 0; i < nebulaLayer.length; i++) {
+            var n = nebulaLayer[i];
+            var grad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.radius);
+            // Shift hue subtly over time
+            var pulse = Math.sin(Date.now() * 0.0003 + i * 1.5) * 0.02;
+            var nebColors = [
+                'rgba(60, 20, 120,',  // purple
+                'rgba(20, 60, 120,',  // blue
+                'rgba(20, 80, 80,',   // teal
+                'rgba(80, 20, 100,',  // magenta
+                'rgba(30, 50, 80,'    // deep blue
+            ];
+            var baseAlpha = n.alpha + pulse;
+            grad.addColorStop(0, nebColors[i % nebColors.length] + (baseAlpha * 1.5).toFixed(3) + ')');
+            grad.addColorStop(0.5, nebColors[i % nebColors.length] + (baseAlpha * 0.5).toFixed(3) + ')');
+            grad.addColorStop(1, nebColors[i % nebColors.length] + '0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+        }
+
+        // Draw parallax star layers
+        var starColors = ['#8888cc', '#aaaadd', '#ffffff'];
+        for (var layer = 0; layer < 3; layer++) {
+            var arr = starLayers[layer];
+            for (var i = 0; i < arr.length; i++) {
+                var s = arr[i];
+                // Twinkling effect
+                var twinkle = Math.sin(Date.now() * 0.003 + i * 7 + layer * 100) * 0.15;
+                ctx.globalAlpha = clamp(s.brightness + twinkle, 0.05, 1.0);
+                ctx.fillStyle = starColors[layer];
+                ctx.fillRect(s.x, s.y, s.s, s.s);
+            }
         }
         ctx.globalAlpha = 1;
+    }
+
+    // ── Screen Shake ──
+    function triggerShake(intensity) {
+        screenShake.intensity = Math.max(screenShake.intensity, intensity);
+    }
+
+    function updateScreenShake(dt) {
+        if (screenShake.intensity > 0.1) {
+            screenShake.x = (Math.random() - 0.5) * screenShake.intensity * 2;
+            screenShake.y = (Math.random() - 0.5) * screenShake.intensity * 2;
+            screenShake.intensity *= 0.9;
+        } else {
+            screenShake.x = 0;
+            screenShake.y = 0;
+            screenShake.intensity = 0;
+        }
+    }
+
+    // ── Shockwave System ──
+    function spawnShockwave(x, y, maxRadius, color) {
+        shockwaves.push({
+            x: x,
+            y: y,
+            radius: 5,
+            maxRadius: maxRadius || 50,
+            life: 1.0,
+            color: color || '#ffffff'
+        });
+    }
+
+    function updateShockwaves(dt) {
+        for (var i = shockwaves.length - 1; i >= 0; i--) {
+            var sw = shockwaves[i];
+            sw.life -= dt * 2.5;
+            sw.radius += (sw.maxRadius - sw.radius) * dt * 6;
+            if (sw.life <= 0) {
+                shockwaves.splice(i, 1);
+            }
+        }
+    }
+
+    function drawShockwaves() {
+        for (var i = 0; i < shockwaves.length; i++) {
+            var sw = shockwaves[i];
+            ctx.beginPath();
+            ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI * 2);
+            ctx.strokeStyle = sw.color;
+            ctx.lineWidth = Math.max(1, 3 * sw.life);
+            ctx.globalAlpha = sw.life * 0.6;
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+            ctx.lineWidth = 1;
+        }
     }
 
     // ── Player ──
@@ -220,6 +411,46 @@
 
         var cx = p.x + p.w / 2;
         var cy = p.y + p.h / 2;
+        var isMoving = (p.vx !== 0 || p.vy !== 0 || p.firing);
+
+        // Engine thrust animation (flickering orange/yellow glow behind ship)
+        if (isMoving || p.firing) {
+            var thrustLength = 8 + Math.random() * 10;
+            var thrustWidth = 6 + Math.random() * 4;
+            var thrustGrad = ctx.createLinearGradient(cx, p.y + p.h, cx, p.y + p.h + thrustLength);
+            thrustGrad.addColorStop(0, 'rgba(255, 200, 50, 0.9)');
+            thrustGrad.addColorStop(0.4, 'rgba(255, 120, 0, 0.6)');
+            thrustGrad.addColorStop(1, 'rgba(255, 60, 0, 0)');
+
+            // Left engine flame
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(cx - 6, p.y + p.h - 2);
+            ctx.lineTo(cx - 6 - thrustWidth / 2, p.y + p.h + thrustLength);
+            ctx.lineTo(cx - 6 + thrustWidth / 2, p.y + p.h + thrustLength);
+            ctx.closePath();
+            ctx.fillStyle = thrustGrad;
+            ctx.globalAlpha = 0.7 + Math.random() * 0.3;
+            ctx.fill();
+
+            // Right engine flame
+            ctx.beginPath();
+            ctx.moveTo(cx + 6, p.y + p.h - 2);
+            ctx.lineTo(cx + 6 - thrustWidth / 2, p.y + p.h + thrustLength);
+            ctx.lineTo(cx + 6 + thrustWidth / 2, p.y + p.h + thrustLength);
+            ctx.closePath();
+            ctx.fill();
+
+            // Engine glow halo
+            ctx.shadowColor = '#ff8800';
+            ctx.shadowBlur = 15;
+            ctx.beginPath();
+            ctx.arc(cx, p.y + p.h + 2, 5, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255, 150, 0, 0.3)';
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.restore();
+        }
 
         // Shield glow
         if (p.shield) {
@@ -228,7 +459,10 @@
             ctx.strokeStyle = '#44ccff';
             ctx.lineWidth = 2;
             ctx.globalAlpha = 0.4 + Math.sin(Date.now() * 0.008) * 0.2;
+            ctx.shadowColor = '#44ccff';
+            ctx.shadowBlur = 12;
             ctx.stroke();
+            ctx.shadowBlur = 0;
             ctx.globalAlpha = 1;
         }
 
@@ -236,12 +470,20 @@
         if (p.speedBoost) {
             ctx.globalAlpha = 0.3;
             ctx.fillStyle = '#ffcc00';
+            ctx.shadowColor = '#ffcc00';
+            ctx.shadowBlur = 8;
             ctx.fillRect(p.x + 3, p.y + p.h, p.w - 6, 8);
+            ctx.shadowBlur = 0;
             ctx.globalAlpha = 1;
         }
 
-        // Ship body (triangle/arrow)
-        ctx.fillStyle = p.color;
+        // Ship body with gradient fill
+        var bodyGrad = ctx.createLinearGradient(cx, p.y, cx, p.y + p.h);
+        bodyGrad.addColorStop(0, lightenColor(p.color, 60));
+        bodyGrad.addColorStop(0.4, p.color);
+        bodyGrad.addColorStop(1, darkenColor(p.color, 50));
+
+        ctx.fillStyle = bodyGrad;
         ctx.beginPath();
         ctx.moveTo(cx, p.y);
         ctx.lineTo(p.x, p.y + p.h);
@@ -251,8 +493,18 @@
         ctx.closePath();
         ctx.fill();
 
-        // Cockpit
-        ctx.fillStyle = p.lightColor;
+        // Subtle ship glow aura
+        ctx.shadowColor = p.color;
+        ctx.shadowBlur = 8;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // Cockpit with gradient
+        var cockpitGrad = ctx.createLinearGradient(cx, p.y + 6, cx, p.y + p.h * 0.6);
+        cockpitGrad.addColorStop(0, lightenColor(p.lightColor, 80));
+        cockpitGrad.addColorStop(1, p.lightColor);
+
+        ctx.fillStyle = cockpitGrad;
         ctx.beginPath();
         ctx.moveTo(cx, p.y + 6);
         ctx.lineTo(cx - 5, p.y + p.h * 0.6);
@@ -260,7 +512,7 @@
         ctx.closePath();
         ctx.fill();
 
-        // Engine glow
+        // Static engine glow dots (always visible)
         ctx.fillStyle = '#ff8800';
         ctx.globalAlpha = 0.6 + Math.random() * 0.3;
         ctx.fillRect(cx - 5, p.y + p.h - 2, 4, 4 + Math.random() * 4);
@@ -276,16 +528,21 @@
             p.invuln = 0.5;
             CGameAudio.play('hit');
             spawnParticles(p.x + p.w / 2, p.y + p.h / 2, '#44ccff', 8);
+            spawnShockwave(p.x + p.w / 2, p.y + p.h / 2, 30, '#44ccff');
             return;
         }
 
         p.lives--;
         CGameAudio.play('hit');
-        spawnParticles(p.x + p.w / 2, p.y + p.h / 2, p.color, 15);
+        spawnExplosionParticles(p.x + p.w / 2, p.y + p.h / 2, p.color, 15);
+        spawnShockwave(p.x + p.w / 2, p.y + p.h / 2, 40, p.color);
+        triggerShake(5);
 
         if (p.lives <= 0) {
             p.alive = false;
-            spawnParticles(p.x + p.w / 2, p.y + p.h / 2, p.color, 30);
+            spawnExplosionParticles(p.x + p.w / 2, p.y + p.h / 2, p.color, 30);
+            spawnShockwave(p.x + p.w / 2, p.y + p.h / 2, 70, '#ffffff');
+            triggerShake(12);
             CGameAudio.play('lose');
         } else {
             p.invuln = INVULN_TIME;
@@ -304,7 +561,7 @@
             var b = bullets[i];
             // Store trail position
             b.trail.push({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
-            if (b.trail.length > 5) b.trail.shift();
+            if (b.trail.length > 8) b.trail.shift();
 
             b.x += b.vx * dt;
             b.y += b.vy * dt;
@@ -319,22 +576,40 @@
         for (var i = 0; i < bullets.length; i++) {
             var b = bullets[i];
 
-            // Trail
+            // Streak trail with glow
+            ctx.save();
+            ctx.shadowColor = b.color;
+            ctx.shadowBlur = 10;
+
             for (var t = 0; t < b.trail.length; t++) {
-                var alpha = (t / b.trail.length) * 0.4;
+                var alpha = (t / b.trail.length) * 0.5;
                 ctx.fillStyle = b.color;
                 ctx.globalAlpha = alpha;
-                var sz = 2 + (t / b.trail.length) * 2;
+                var sz = 1 + (t / b.trail.length) * 3;
                 ctx.fillRect(b.trail[t].x - sz / 2, b.trail[t].y - sz / 2, sz, sz);
             }
             ctx.globalAlpha = 1;
 
-            // Bullet
-            ctx.fillStyle = b.color;
+            // Main bullet with strong glow
             ctx.shadowColor = b.color;
-            ctx.shadowBlur = 6;
+            ctx.shadowBlur = 12;
+
+            // Gradient fill for bullet
+            var bGrad = ctx.createLinearGradient(b.x, b.y, b.x, b.y + b.h);
+            bGrad.addColorStop(0, '#ffffff');
+            bGrad.addColorStop(0.3, lightenColor(b.color, 60));
+            bGrad.addColorStop(1, b.color);
+            ctx.fillStyle = bGrad;
             ctx.fillRect(b.x, b.y, b.w, b.h);
+
+            // Extra bright core
+            ctx.fillStyle = '#ffffff';
+            ctx.globalAlpha = 0.6;
+            ctx.fillRect(b.x + 1, b.y, b.w - 2, b.h * 0.4);
+            ctx.globalAlpha = 1;
+
             ctx.shadowBlur = 0;
+            ctx.restore();
         }
     }
 
@@ -416,7 +691,17 @@
             var cy = e.y + e.h / 2;
             var half = e.w / 2;
 
-            ctx.fillStyle = e.color;
+            // Glow aura behind enemy
+            ctx.save();
+            ctx.shadowColor = e.color;
+            ctx.shadowBlur = 14;
+
+            // Create gradient fill for enemy
+            var eGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, half);
+            eGrad.addColorStop(0, lightenColor(e.color, 80));
+            eGrad.addColorStop(0.5, e.color);
+            eGrad.addColorStop(1, darkenColor(e.color, 40));
+            ctx.fillStyle = eGrad;
 
             switch (e.type) {
                 case E_BASIC:
@@ -451,6 +736,46 @@
                     ctx.fill();
                     break;
             }
+
+            ctx.shadowBlur = 0;
+            ctx.restore();
+
+            // Subtle pulsing outline
+            ctx.strokeStyle = lightenColor(e.color, 40);
+            ctx.lineWidth = 1;
+            ctx.globalAlpha = 0.3 + Math.sin(Date.now() * 0.005 + i) * 0.15;
+            switch (e.type) {
+                case E_BASIC:
+                    ctx.save();
+                    ctx.translate(cx, cy);
+                    ctx.rotate(e.timer * 1.5);
+                    ctx.strokeRect(-half - 2, -half - 2, e.w + 4, e.h + 4);
+                    ctx.restore();
+                    break;
+                case E_ZIGZAG:
+                    ctx.beginPath();
+                    ctx.moveTo(cx, e.y - 2);
+                    ctx.lineTo(e.x + e.w + 2, cy);
+                    ctx.lineTo(cx, e.y + e.h + 2);
+                    ctx.lineTo(e.x - 2, cy);
+                    ctx.closePath();
+                    ctx.stroke();
+                    break;
+                case E_DIVEBOMBER:
+                    ctx.beginPath();
+                    for (var a = 0; a < 6; a++) {
+                        var angle = (Math.PI * 2 / 6) * a - Math.PI / 2;
+                        var px = cx + Math.cos(angle) * (half + 2);
+                        var py = cy + Math.sin(angle) * (half + 2);
+                        if (a === 0) ctx.moveTo(px, py);
+                        else ctx.lineTo(px, py);
+                    }
+                    ctx.closePath();
+                    ctx.stroke();
+                    break;
+            }
+            ctx.globalAlpha = 1;
+            ctx.lineWidth = 1;
 
             // HP bar for multi-hit enemies
             if (e.maxHp > 1) {
@@ -527,20 +852,42 @@
             var pw = powerups[i];
             var cx = pw.x + pw.w / 2;
             var cy = pw.y + pw.h / 2;
+            var pulsePhase = Math.sin(pw.timer * 5);
+            var pulseScale = 1 + pulsePhase * 0.1;
+            var glowIntensity = 10 + pulsePhase * 8;
 
-            // Glow
+            ctx.save();
+
+            // Outer pulsing glow aura
+            ctx.shadowColor = POWERUP_COLORS[pw.type];
+            ctx.shadowBlur = glowIntensity;
+
+            // Outer glow ring
             ctx.beginPath();
-            ctx.arc(cx, cy, pw.w * 0.7, 0, Math.PI * 2);
+            ctx.arc(cx, cy, pw.w * 0.7 * pulseScale, 0, Math.PI * 2);
             ctx.fillStyle = POWERUP_COLORS[pw.type];
-            ctx.globalAlpha = 0.15 + Math.sin(pw.timer * 5) * 0.1;
+            ctx.globalAlpha = 0.12 + Math.sin(pw.timer * 5) * 0.08;
             ctx.fill();
             ctx.globalAlpha = 1;
 
-            // Icon circle
+            // Icon circle with gradient
+            var pwGrad = ctx.createRadialGradient(cx - 3, cy - 3, 0, cx, cy, pw.w / 2);
+            pwGrad.addColorStop(0, lightenColor(POWERUP_COLORS[pw.type], 80));
+            pwGrad.addColorStop(0.6, POWERUP_COLORS[pw.type]);
+            pwGrad.addColorStop(1, darkenColor(POWERUP_COLORS[pw.type], 40));
             ctx.beginPath();
-            ctx.arc(cx, cy, pw.w / 2, 0, Math.PI * 2);
-            ctx.fillStyle = POWERUP_COLORS[pw.type];
+            ctx.arc(cx, cy, (pw.w / 2) * pulseScale, 0, Math.PI * 2);
+            ctx.fillStyle = pwGrad;
             ctx.fill();
+
+            // Glow ring border
+            ctx.strokeStyle = lightenColor(POWERUP_COLORS[pw.type], 60);
+            ctx.lineWidth = 1.5;
+            ctx.globalAlpha = 0.5 + pulsePhase * 0.3;
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+
+            ctx.shadowBlur = 0;
 
             // Label
             ctx.fillStyle = '#000';
@@ -548,6 +895,8 @@
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(POWERUP_LABELS[pw.type], cx, cy);
+
+            ctx.restore();
         }
     }
 
@@ -569,24 +918,61 @@
         }
     }
 
+    // Enhanced explosion particles with varied colors
+    function spawnExplosionParticles(x, y, baseColor, count) {
+        var explosionColors = ['#ffffff', '#ffff44', '#ffaa00', '#ff6600', baseColor];
+
+        for (var i = 0; i < count; i++) {
+            var angle = rand(0, Math.PI * 2);
+            var speed = rand(60, 280);
+            var colorIdx = Math.floor(rand(0, explosionColors.length));
+            var life = rand(0.3, 1.0);
+            particles.push({
+                x: x + rand(-3, 3),
+                y: y + rand(-3, 3),
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                life: life,
+                maxLife: life,
+                size: rand(2, 7),
+                color: explosionColors[colorIdx]
+            });
+        }
+    }
+
     function updateParticles(dt) {
         for (var i = particles.length - 1; i >= 0; i--) {
             var p = particles[i];
             p.x += p.vx * dt;
             p.y += p.vy * dt;
+            // Slow down particles slightly for a nicer look
+            p.vx *= 0.98;
+            p.vy *= 0.98;
             p.life -= dt;
             if (p.life <= 0) particles.splice(i, 1);
         }
     }
 
     function drawParticles() {
+        ctx.save();
         for (var i = 0; i < particles.length; i++) {
             var p = particles[i];
+            var lifeRatio = clamp(p.life / p.maxLife, 0, 1);
+            var currentSize = p.size * lifeRatio;
+
             ctx.fillStyle = p.color;
-            ctx.globalAlpha = clamp(p.life / p.maxLife, 0, 1);
-            ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+            ctx.globalAlpha = lifeRatio;
+            ctx.shadowColor = p.color;
+            ctx.shadowBlur = 6 * lifeRatio;
+
+            // Draw as circle for softer look
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, currentSize / 2, 0, Math.PI * 2);
+            ctx.fill();
         }
+        ctx.shadowBlur = 0;
         ctx.globalAlpha = 1;
+        ctx.restore();
     }
 
     // ── Wave System ──
@@ -673,7 +1059,9 @@
 
                     if (e.hp <= 0) {
                         e.alive = false;
-                        spawnParticles(e.x + e.w / 2, e.y + e.h / 2, e.color, 12);
+                        spawnExplosionParticles(e.x + e.w / 2, e.y + e.h / 2, e.color, 18);
+                        spawnShockwave(e.x + e.w / 2, e.y + e.h / 2, 35 + e.w, e.color);
+                        triggerShake(4);
                         CGameAudio.play('hit');
                         spawnPowerup(e.x + e.w / 2, e.y + e.h / 2);
 
@@ -719,7 +1107,9 @@
                 if (rectHit(e, p)) {
                     hitPlayer(p);
                     e.alive = false;
-                    spawnParticles(e.x + e.w / 2, e.y + e.h / 2, e.color, 10);
+                    spawnExplosionParticles(e.x + e.w / 2, e.y + e.h / 2, e.color, 14);
+                    spawnShockwave(e.x + e.w / 2, e.y + e.h / 2, 40, e.color);
+                    triggerShake(6);
                 }
             }
         }
@@ -934,6 +1324,8 @@
             updateEnemies(dt);
             updatePowerups(dt);
             updateParticles(dt);
+            updateShockwaves(dt);
+            updateScreenShake(dt);
             updateWaveSpawning(dt);
             checkCollisions();
 
@@ -955,18 +1347,24 @@
     }
 
     function draw() {
-        // Background
-        var style = getComputedStyle(document.documentElement);
-        var bgColor = style.getPropertyValue('--canvas-bg').trim() || '#0d0d1a';
-        ctx.fillStyle = bgColor;
-        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+        ctx.save();
 
-        drawStars();
+        // Apply screen shake offset
+        if (screenShake.intensity > 0.1) {
+            ctx.translate(screenShake.x, screenShake.y);
+        }
+
+        // Parallax background with nebula
+        drawBackground();
+
         drawPowerups();
         drawBullets();
         drawEnemies();
         for (var i = 0; i < players.length; i++) drawPlayer(players[i]);
         drawParticles();
+        drawShockwaves();
+
+        ctx.restore();
     }
 
     // ── Start / Stop ──
@@ -984,6 +1382,8 @@
         enemies = [];
         particles = [];
         powerups = [];
+        shockwaves = [];
+        screenShake = { x: 0, y: 0, intensity: 0 };
 
         players = [createPlayer(0)];
         if (mode === 'coop' || mode === 'versus') {

@@ -17,6 +17,8 @@
     var TRAIL_MAX = 40;
     var PREVIEW_DOTS = 50;
     var WIND_MAX = 80;
+    var FIRE_TRAIL_MAX = 15;
+    var POWER_SHOT_THRESHOLD = 0.8; // 80% power
 
     // ── State ──
     var canvas, ctx;
@@ -32,6 +34,18 @@
     var particles = [];
     var trailPoints = [];
     var turnTransitionTimer = 0;
+
+    // Visual enhancement state
+    var globalTime = 0; // accumulated time for animations
+    var stars = []; // dark mode twinkling stars
+    var clouds = []; // light mode drifting clouds
+    var shockwaves = []; // expanding ring effects
+    var smokeParticles = []; // lingering smoke
+    var windStreaks = []; // animated wind dashes
+    var fireTrail = []; // last N positions of projectile for fire trail
+    var screenShake = { x: 0, y: 0, intensity: 0 }; // screen shake
+    var powerShotText = { active: false, timer: 0, x: 0, y: 0 }; // "POWER SHOT!" text
+    var isPowerShot = false; // whether current shot is a power shot
 
     // Input
     var keys = {};
@@ -166,6 +180,50 @@
     }
     window.addEventListener('resize', resizeCanvas);
 
+    // ── Generate stars for dark mode ──
+    function generateStars() {
+        stars = [];
+        for (var i = 0; i < 120; i++) {
+            stars.push({
+                x: Math.random() * W,
+                y: Math.random() * H * 0.55,
+                r: 0.5 + Math.random() * 1.5,
+                phase: Math.random() * Math.PI * 2,
+                speed: 1.5 + Math.random() * 2.5,
+                baseAlpha: 0.3 + Math.random() * 0.7
+            });
+        }
+    }
+
+    // ── Generate clouds for light mode ──
+    function generateClouds() {
+        clouds = [];
+        for (var i = 0; i < 6; i++) {
+            clouds.push({
+                x: Math.random() * W,
+                y: 30 + Math.random() * 100,
+                w: 60 + Math.random() * 80,
+                h: 20 + Math.random() * 15,
+                speed: 5 + Math.random() * 10,
+                alpha: 0.25 + Math.random() * 0.25
+            });
+        }
+    }
+
+    // ── Initialize wind streaks ──
+    function initWindStreaks() {
+        windStreaks = [];
+        for (var i = 0; i < 12; i++) {
+            windStreaks.push({
+                x: Math.random() * W,
+                y: 50 + Math.random() * (H * 0.5),
+                len: 10 + Math.random() * 20,
+                alpha: 0.1 + Math.random() * 0.2,
+                speed: 0 // will be set based on wind
+            });
+        }
+    }
+
     // ── Terrain generation ──
     function generateTerrain() {
         terrain = new Array(W);
@@ -238,7 +296,8 @@
                 color: getComputedStyle(document.documentElement).getPropertyValue('--p1-color').trim() || '#00b4ff',
                 lightColor: getComputedStyle(document.documentElement).getPropertyValue('--p1-light').trim() || '#42d4ff',
                 name: 'P1',
-                dir: 1 // faces right
+                dir: 1, // faces right
+                recoilOffset: 0 // cannon recoil animation
             },
             {
                 x: p2x,
@@ -249,7 +308,8 @@
                 color: getComputedStyle(document.documentElement).getPropertyValue('--p2-color').trim() || '#ff4466',
                 lightColor: getComputedStyle(document.documentElement).getPropertyValue('--p2-light').trim() || '#ff7799',
                 name: 'P2',
-                dir: -1 // faces left
+                dir: -1, // faces left
+                recoilOffset: 0
             }
         ];
     }
@@ -258,11 +318,20 @@
     function startGame() {
         generateTerrain();
         createPlayers();
+        generateStars();
+        generateClouds();
+        initWindStreaks();
         wind = (Math.random() * 2 - 1) * WIND_MAX;
         currentPlayer = 0;
         projectile = null;
         particles = [];
         trailPoints = [];
+        shockwaves = [];
+        smokeParticles = [];
+        fireTrail = [];
+        screenShake = { x: 0, y: 0, intensity: 0 };
+        powerShotText = { active: false, timer: 0, x: 0, y: 0 };
+        isPowerShot = false;
         gameState = 'aiming';
         paused = false;
         turnTransitionTimer = 0;
@@ -294,6 +363,8 @@
         wind = clamp(wind, -WIND_MAX, WIND_MAX);
         updateTurnIndicator();
         trailPoints = [];
+        fireTrail = [];
+        isPowerShot = false;
 
         // Update cannon Y positions (terrain may have changed)
         for (var i = 0; i < 2; i++) {
@@ -317,15 +388,34 @@
         var barrelEndX = p.x + dir * cosA * BARREL_LEN;
         var barrelEndY = p.y - sinA * BARREL_LEN;
 
+        // Check for power shot
+        isPowerShot = (p.power / MAX_POWER) >= POWER_SHOT_THRESHOLD;
+
         projectile = {
             x: barrelEndX,
             y: barrelEndY,
             vx: dir * cosA * p.power,
             vy: -sinA * p.power,
-            owner: currentPlayer
+            owner: currentPlayer,
+            rotation: 0 // rotation animation
         };
         trailPoints = [];
+        fireTrail = [];
         gameState = 'firing';
+
+        // Trigger recoil
+        p.recoilOffset = -5;
+
+        // Show power shot text
+        if (isPowerShot) {
+            powerShotText = {
+                active: true,
+                timer: 1.5,
+                x: p.x,
+                y: p.y - 50
+            };
+        }
+
         CGameAudio.play('whoosh');
     }
 
@@ -361,9 +451,10 @@
 
     function createExplosion(x, y, big) {
         var count = big ? 40 : 20;
+        var sizeMultiplier = isPowerShot ? 1.3 : 1.0;
         for (var i = 0; i < count; i++) {
             var angle = Math.random() * Math.PI * 2;
-            var speed = 30 + Math.random() * 120;
+            var speed = (30 + Math.random() * 120) * sizeMultiplier;
             var life = 0.4 + Math.random() * 0.6;
             particles.push({
                 x: x, y: y,
@@ -371,24 +462,74 @@
                 vy: Math.sin(angle) * speed - 40,
                 life: life,
                 maxLife: life,
-                r: 2 + Math.random() * 3,
+                r: (2 + Math.random() * 3) * sizeMultiplier,
                 color: big ?
                     (Math.random() > 0.5 ? '#ff6633' : '#ffcc00') :
                     (Math.random() > 0.5 ? '#aa8855' : '#887744')
             });
         }
+
+        // Add extra spark particles for variety
+        var sparkCount = big ? 15 : 8;
+        for (var j = 0; j < sparkCount; j++) {
+            var sa = Math.random() * Math.PI * 2;
+            var sp = (60 + Math.random() * 180) * sizeMultiplier;
+            var sl = 0.2 + Math.random() * 0.4;
+            particles.push({
+                x: x, y: y,
+                vx: Math.cos(sa) * sp,
+                vy: Math.sin(sa) * sp - 60,
+                life: sl,
+                maxLife: sl,
+                r: 1 + Math.random() * 1.5,
+                color: '#ffffff'
+            });
+        }
+
+        // Add shockwave
+        var shockMaxR = (big ? 60 : 40) * sizeMultiplier;
+        shockwaves.push({
+            x: x,
+            y: y,
+            radius: 5,
+            maxRadius: shockMaxR,
+            alpha: 1.0,
+            lineWidth: big ? 3 : 2
+        });
+
+        // Add smoke particles
+        var smokeCount = big ? 12 : 6;
+        for (var k = 0; k < smokeCount; k++) {
+            var sma = Math.random() * Math.PI * 2;
+            var smSpeed = 10 + Math.random() * 25;
+            smokeParticles.push({
+                x: x + (Math.random() - 0.5) * 10,
+                y: y + (Math.random() - 0.5) * 10,
+                vx: Math.cos(sma) * smSpeed,
+                vy: -15 - Math.random() * 25, // drift upward
+                life: 1.5 + Math.random() * 1.5,
+                maxLife: 1.5 + Math.random() * 1.5,
+                r: 5 + Math.random() * 8,
+                alpha: 0.4 + Math.random() * 0.2
+            });
+        }
+
+        // Screen shake
+        var shakeIntensity = (big ? 8 : 4) * sizeMultiplier;
+        screenShake.intensity = shakeIntensity;
     }
 
     function handleImpact(result) {
         gameState = 'exploding';
         var ex = projectile.x;
         var ey = projectile.y;
+        var explosionRadius = isPowerShot ? EXPLOSION_R * 1.3 : EXPLOSION_R;
 
         if (result.indexOf('hit_') === 0) {
             var hitIdx = parseInt(result.charAt(4));
             players[hitIdx].hp = Math.max(0, players[hitIdx].hp - HIT_DAMAGE);
             createExplosion(ex, ey, true);
-            destroyTerrain(ex, ey, EXPLOSION_R * 1.2);
+            destroyTerrain(ex, ey, explosionRadius * 1.2);
             CGameAudio.play('hit');
             CGameAudio.play('score');
 
@@ -402,7 +543,7 @@
             }
         } else if (result === 'terrain') {
             createExplosion(ex, ey, false);
-            destroyTerrain(ex, ey, EXPLOSION_R);
+            destroyTerrain(ex, ey, explosionRadius);
             CGameAudio.play('hit');
         } else {
             // miss - no explosion for off-screen shots
@@ -562,6 +703,8 @@
     function update(dt) {
         if (paused || gameState === 'gameOver') return;
 
+        globalTime += dt;
+
         // Update particles
         for (var i = particles.length - 1; i >= 0; i--) {
             var pt = particles[i];
@@ -571,6 +714,78 @@
             pt.life -= dt;
             if (pt.life <= 0) {
                 particles.splice(i, 1);
+            }
+        }
+
+        // Update smoke particles
+        for (var si = smokeParticles.length - 1; si >= 0; si--) {
+            var sm = smokeParticles[si];
+            sm.x += sm.vx * dt;
+            sm.y += sm.vy * dt;
+            sm.vx *= 0.98; // slow down horizontally
+            sm.vy *= 0.97; // slow deceleration upward
+            sm.r += 3 * dt; // slowly expand
+            sm.life -= dt;
+            if (sm.life <= 0) {
+                smokeParticles.splice(si, 1);
+            }
+        }
+
+        // Update shockwaves
+        for (var wi = shockwaves.length - 1; wi >= 0; wi--) {
+            var sw = shockwaves[wi];
+            sw.radius += 120 * dt; // expand
+            sw.alpha -= 1.8 * dt; // fade
+            if (sw.alpha <= 0 || sw.radius >= sw.maxRadius) {
+                shockwaves.splice(wi, 1);
+            }
+        }
+
+        // Update screen shake
+        if (screenShake.intensity > 0.1) {
+            screenShake.x = (Math.random() - 0.5) * 2 * screenShake.intensity;
+            screenShake.y = (Math.random() - 0.5) * 2 * screenShake.intensity;
+            screenShake.intensity *= 0.88;
+        } else {
+            screenShake.x = 0;
+            screenShake.y = 0;
+            screenShake.intensity = 0;
+        }
+
+        // Update cannon recoil
+        for (var ri = 0; ri < players.length; ri++) {
+            if (Math.abs(players[ri].recoilOffset) > 0.05) {
+                players[ri].recoilOffset *= 0.85;
+            } else {
+                players[ri].recoilOffset = 0;
+            }
+        }
+
+        // Update wind streaks
+        for (var wsi = 0; wsi < windStreaks.length; wsi++) {
+            var ws = windStreaks[wsi];
+            ws.x += wind * 0.8 * dt;
+            // Wrap around
+            if (ws.x > W + 30) ws.x = -30;
+            if (ws.x < -30) ws.x = W + 30;
+            // Subtle vertical drift
+            ws.y += Math.sin(globalTime * 0.5 + wsi) * 0.3;
+        }
+
+        // Update clouds
+        for (var ci = 0; ci < clouds.length; ci++) {
+            var cl = clouds[ci];
+            cl.x += cl.speed * dt + wind * 0.05 * dt;
+            if (cl.x > W + cl.w) cl.x = -cl.w;
+            if (cl.x < -cl.w) cl.x = W + cl.w;
+        }
+
+        // Update power shot text
+        if (powerShotText.active) {
+            powerShotText.timer -= dt;
+            powerShotText.y -= 20 * dt; // float upward
+            if (powerShotText.timer <= 0) {
+                powerShotText.active = false;
             }
         }
 
@@ -624,10 +839,15 @@
             projectile.y += projectile.vy * dt;
             projectile.vy += GRAVITY * dt;
             projectile.vx += wind * dt;
+            projectile.rotation += 8 * dt; // rotation animation
 
             // Trail
             trailPoints.push({ x: projectile.x, y: projectile.y });
             if (trailPoints.length > TRAIL_MAX) trailPoints.shift();
+
+            // Fire trail (last 15 positions)
+            fireTrail.push({ x: projectile.x, y: projectile.y });
+            if (fireTrail.length > FIRE_TRAIL_MAX) fireTrail.shift();
 
             // Check collision
             var result = checkProjectileCollision();
@@ -643,8 +863,13 @@
 
         if (gameState === 'idle' || players.length === 0) return;
 
+        // Apply screen shake
+        ctx.save();
+        ctx.translate(screenShake.x, screenShake.y);
+
         drawSky();
         drawTerrain();
+        drawWindStreaks();
         drawWind();
         drawPlayers();
         drawHealthBars();
@@ -663,8 +888,14 @@
         }
 
         drawTrail();
+        drawFireTrail();
         drawProjectile();
         drawParticles();
+        drawSmokeParticles();
+        drawShockwaves();
+        drawPowerShotText();
+
+        ctx.restore(); // end screen shake
     }
 
     function drawControlHint() {
@@ -688,20 +919,68 @@
         var grad = ctx.createLinearGradient(0, 0, 0, H);
         var theme = document.body.getAttribute('data-theme');
         if (theme === 'light') {
-            grad.addColorStop(0, '#87CEEB');
-            grad.addColorStop(0.6, '#c8e6f5');
+            grad.addColorStop(0, '#5BADE2');
+            grad.addColorStop(0.25, '#87CEEB');
+            grad.addColorStop(0.5, '#a8dcf0');
+            grad.addColorStop(0.7, '#c8e6f5');
+            grad.addColorStop(0.85, '#ddeedd');
             grad.addColorStop(1, '#e8f0e0');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, W, H);
+
+            // Draw clouds
+            drawClouds();
         } else {
-            grad.addColorStop(0, '#0a0a2e');
+            grad.addColorStop(0, '#050520');
+            grad.addColorStop(0.2, '#0a0a2e');
             grad.addColorStop(0.4, '#1a1a4e');
+            grad.addColorStop(0.6, '#221545');
             grad.addColorStop(0.8, '#2a1a3e');
+            grad.addColorStop(0.9, '#1f2a25');
             grad.addColorStop(1, '#1a2a1e');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, W, H);
+
+            // Draw twinkling stars
+            drawStars();
         }
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, W, H);
+    }
+
+    function drawStars() {
+        for (var i = 0; i < stars.length; i++) {
+            var s = stars[i];
+            var twinkle = 0.5 + 0.5 * Math.sin(globalTime * s.speed + s.phase);
+            var alpha = s.baseAlpha * twinkle;
+            ctx.fillStyle = 'rgba(255, 255, 240, ' + alpha.toFixed(3) + ')';
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    function drawClouds() {
+        for (var i = 0; i < clouds.length; i++) {
+            var c = clouds[i];
+            ctx.fillStyle = 'rgba(255, 255, 255, ' + c.alpha.toFixed(3) + ')';
+            // Draw cloud as overlapping ellipses
+            ctx.beginPath();
+            ctx.ellipse(c.x, c.y, c.w * 0.5, c.h * 0.5, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.ellipse(c.x - c.w * 0.25, c.y + 2, c.w * 0.35, c.h * 0.4, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.ellipse(c.x + c.w * 0.25, c.y + 1, c.w * 0.38, c.h * 0.42, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.ellipse(c.x + c.w * 0.05, c.y - c.h * 0.25, c.w * 0.3, c.h * 0.35, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
     }
 
     function drawTerrain() {
+        var theme = document.body.getAttribute('data-theme');
+
         // Fill terrain
         ctx.beginPath();
         ctx.moveTo(0, H);
@@ -711,20 +990,48 @@
         ctx.lineTo(W, H);
         ctx.closePath();
 
-        // Gradient fill
-        var theme = document.body.getAttribute('data-theme');
-        var grad = ctx.createLinearGradient(0, H * 0.3, 0, H);
+        // Layered gradient fill (grass on top, dirt/rock below)
+        var grad = ctx.createLinearGradient(0, H * 0.25, 0, H);
         if (theme === 'light') {
-            grad.addColorStop(0, '#4a9e3f');
-            grad.addColorStop(0.4, '#3d8b35');
-            grad.addColorStop(1, '#7a5c3a');
+            grad.addColorStop(0, '#5ab84a');
+            grad.addColorStop(0.08, '#4a9e3f');
+            grad.addColorStop(0.2, '#3d8b35');
+            grad.addColorStop(0.4, '#8a6b3a');
+            grad.addColorStop(0.65, '#7a5c3a');
+            grad.addColorStop(0.85, '#5a4030');
+            grad.addColorStop(1, '#4a3525');
         } else {
-            grad.addColorStop(0, '#2d6b2d');
-            grad.addColorStop(0.4, '#1f4f1f');
-            grad.addColorStop(1, '#4a3520');
+            grad.addColorStop(0, '#3a8a3a');
+            grad.addColorStop(0.08, '#2d6b2d');
+            grad.addColorStop(0.2, '#1f4f1f');
+            grad.addColorStop(0.4, '#5a4020');
+            grad.addColorStop(0.65, '#4a3520');
+            grad.addColorStop(0.85, '#3a2a18');
+            grad.addColorStop(1, '#2a1e12');
         }
         ctx.fillStyle = grad;
         ctx.fill();
+
+        // Subtle horizontal texture lines in the terrain
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(0, H);
+        for (var xt = 0; xt < W; xt++) {
+            ctx.lineTo(xt, terrain[xt]);
+        }
+        ctx.lineTo(W, H);
+        ctx.closePath();
+        ctx.clip();
+
+        ctx.strokeStyle = theme === 'light' ? 'rgba(0,0,0,0.04)' : 'rgba(0,0,0,0.06)';
+        ctx.lineWidth = 1;
+        for (var ly = Math.floor(H * 0.3); ly < H; ly += 8) {
+            ctx.beginPath();
+            ctx.moveTo(0, ly);
+            ctx.lineTo(W, ly);
+            ctx.stroke();
+        }
+        ctx.restore();
 
         // Top edge highlight
         ctx.beginPath();
@@ -732,9 +1039,47 @@
         for (var x2 = 1; x2 < W; x2++) {
             ctx.lineTo(x2, terrain[x2]);
         }
-        ctx.strokeStyle = theme === 'light' ? '#5cb85c' : '#3a8a3a';
+        ctx.strokeStyle = theme === 'light' ? '#6cd06c' : '#40a040';
         ctx.lineWidth = 2;
         ctx.stroke();
+
+        // Grass blade details at the terrain edge
+        drawGrassBlades(theme);
+    }
+
+    function drawGrassBlades(theme) {
+        var grassColor1 = theme === 'light' ? '#5cb85c' : '#3a8a3a';
+        var grassColor2 = theme === 'light' ? '#4aa04a' : '#2d7a2d';
+        var grassDarkColor = theme === 'light' ? '#3a8030' : '#1f5f1f';
+
+        // Draw grass blades every few pixels along terrain
+        for (var x = 0; x < W; x += 3) {
+            var ty = terrain[x];
+            // Skip if terrain is off-screen low
+            if (ty > H - 5) continue;
+
+            // Vary grass height
+            var bladeH = 3 + Math.sin(x * 0.7) * 2 + Math.cos(x * 1.3) * 1.5;
+            var windSway = Math.sin(globalTime * 1.5 + x * 0.05) * 1.2;
+
+            ctx.strokeStyle = (x % 6 < 3) ? grassColor1 : grassColor2;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x, ty);
+            ctx.lineTo(x + windSway, ty - bladeH);
+            ctx.stroke();
+
+            // Every 9th blade is thicker and taller
+            if (x % 9 === 0) {
+                ctx.strokeStyle = grassDarkColor;
+                ctx.lineWidth = 1.5;
+                var tallH = bladeH + 3;
+                ctx.beginPath();
+                ctx.moveTo(x + 1, ty);
+                ctx.lineTo(x + 1 + windSway * 1.3, ty - tallH);
+                ctx.stroke();
+            }
+        }
     }
 
     function drawWind() {
@@ -777,43 +1122,116 @@
         }
     }
 
+    function drawWindStreaks() {
+        if (Math.abs(wind) < 5) return;
+
+        var windDir = wind > 0 ? 1 : -1;
+        var windMag = Math.abs(wind) / WIND_MAX;
+        ctx.strokeStyle = 'rgba(255, 255, 255, ' + (0.06 + windMag * 0.1).toFixed(3) + ')';
+        ctx.lineWidth = 1;
+
+        for (var i = 0; i < windStreaks.length; i++) {
+            var ws = windStreaks[i];
+            var streakLen = ws.len * windMag;
+            // Dashed line effect
+            ctx.setLineDash([3, 5]);
+            ctx.beginPath();
+            ctx.moveTo(ws.x, ws.y);
+            ctx.lineTo(ws.x + windDir * streakLen, ws.y);
+            ctx.stroke();
+        }
+        ctx.setLineDash([]);
+    }
+
     function drawPlayers() {
         for (var i = 0; i < 2; i++) {
             var p = players[i];
             var px = p.x;
             var py = p.y;
 
-            // Cannon base (rectangle)
-            ctx.fillStyle = p.color;
-            ctx.fillRect(px - CANNON_W / 2, py - CANNON_H / 2, CANNON_W, CANNON_H);
+            // Cannon base with metallic gradient
+            var baseGrad = ctx.createLinearGradient(px - CANNON_W / 2, py - CANNON_H / 2, px - CANNON_W / 2, py + CANNON_H / 2);
+            baseGrad.addColorStop(0, p.lightColor);
+            baseGrad.addColorStop(0.4, p.color);
+            baseGrad.addColorStop(1, 'rgba(0,0,0,0.3)');
+            ctx.fillStyle = baseGrad;
+            roundRect(px - CANNON_W / 2, py - CANNON_H / 2, CANNON_W, CANNON_H, 3);
+            ctx.fill();
 
-            // Darker bottom half
-            ctx.fillStyle = 'rgba(0,0,0,0.2)';
-            ctx.fillRect(px - CANNON_W / 2, py, CANNON_W, CANNON_H / 2);
+            // Metallic edge highlight on top
+            ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(px - CANNON_W / 2 + 3, py - CANNON_H / 2);
+            ctx.lineTo(px + CANNON_W / 2 - 3, py - CANNON_H / 2);
+            ctx.stroke();
 
-            // Barrel
+            // Rivets / bolts on the base
+            var rivetColor = 'rgba(80, 80, 80, 0.6)';
+            var rivetHighlight = 'rgba(200, 200, 200, 0.4)';
+            var rivetPositions = [
+                { rx: px - CANNON_W / 2 + 5, ry: py - 2 },
+                { rx: px + CANNON_W / 2 - 5, ry: py - 2 },
+                { rx: px - CANNON_W / 2 + 5, ry: py + CANNON_H / 2 - 4 },
+                { rx: px + CANNON_W / 2 - 5, ry: py + CANNON_H / 2 - 4 }
+            ];
+            for (var rv = 0; rv < rivetPositions.length; rv++) {
+                var rp = rivetPositions[rv];
+                ctx.fillStyle = rivetColor;
+                ctx.beginPath();
+                ctx.arc(rp.rx, rp.ry, 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = rivetHighlight;
+                ctx.beginPath();
+                ctx.arc(rp.rx - 0.5, rp.ry - 0.5, 0.8, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Barrel with recoil
             ctx.save();
             ctx.translate(px, py);
             var cosA = Math.cos(p.angle);
             var sinA = Math.sin(p.angle);
-            var bex = p.dir * cosA * BARREL_LEN;
-            var bey = -sinA * BARREL_LEN;
+
+            // Recoil offset applied along barrel direction
+            var recoilX = p.dir * cosA * p.recoilOffset;
+            var recoilY = -sinA * p.recoilOffset;
+
+            var bex = p.dir * cosA * BARREL_LEN + recoilX;
+            var bey = -sinA * BARREL_LEN + recoilY;
+            var bStartX = recoilX;
+            var bStartY = recoilY;
             ctx.lineCap = 'round';
 
             // Barrel outline (drawn first, thicker)
             ctx.beginPath();
-            ctx.moveTo(0, 0);
+            ctx.moveTo(bStartX, bStartY);
             ctx.lineTo(bex, bey);
             ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-            ctx.lineWidth = BARREL_W + 2;
+            ctx.lineWidth = BARREL_W + 3;
             ctx.stroke();
 
-            // Barrel fill
+            // Barrel metallic gradient
+            var barrelGrad = ctx.createLinearGradient(bStartX, bStartY, bex, bey);
+            barrelGrad.addColorStop(0, '#888888');
+            barrelGrad.addColorStop(0.3, '#bbbbbb');
+            barrelGrad.addColorStop(0.6, '#cccccc');
+            barrelGrad.addColorStop(1, '#999999');
             ctx.beginPath();
-            ctx.moveTo(0, 0);
+            ctx.moveTo(bStartX, bStartY);
             ctx.lineTo(bex, bey);
-            ctx.strokeStyle = p.lightColor;
+            ctx.strokeStyle = barrelGrad;
             ctx.lineWidth = BARREL_W;
+            ctx.stroke();
+
+            // Barrel highlight stripe (thin bright line along top edge)
+            ctx.beginPath();
+            var perpX = sinA * p.dir * 1.5;
+            var perpY = cosA * 1.5;
+            ctx.moveTo(bStartX + perpX, bStartY + perpY);
+            ctx.lineTo(bex + perpX, bey + perpY);
+            ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+            ctx.lineWidth = 1;
             ctx.stroke();
 
             ctx.restore();
@@ -832,6 +1250,14 @@
             ctx.fill();
             ctx.beginPath();
             ctx.arc(px + 8, py + CANNON_H / 2, 3, 0, Math.PI * 2);
+            ctx.fill();
+            // Wheel hub detail
+            ctx.fillStyle = '#777';
+            ctx.beginPath();
+            ctx.arc(px - 8, py + CANNON_H / 2, 1.2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(px + 8, py + CANNON_H / 2, 1.2, 0, Math.PI * 2);
             ctx.fill();
         }
     }
@@ -948,12 +1374,26 @@
             ctx.fill();
         }
 
+        // Power shot threshold marker
+        var threshX = bx + barW * POWER_SHOT_THRESHOLD;
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(threshX, by - 1);
+        ctx.lineTo(threshX, by + barH + 1);
+        ctx.stroke();
+
         // Label
         ctx.fillStyle = '#ffffff';
         ctx.font = '9px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
-        ctx.fillText('POWER', p.x, by + barH + 2);
+        var powerLabel = 'POWER';
+        if (frac >= POWER_SHOT_THRESHOLD) {
+            powerLabel = 'POWER!';
+            ctx.fillStyle = '#ff4444';
+        }
+        ctx.fillText(powerLabel, p.x, by + barH + 2);
     }
 
     function drawTrail() {
@@ -968,24 +1408,63 @@
         }
     }
 
+    function drawFireTrail() {
+        if (fireTrail.length < 2) return;
+        for (var i = 0; i < fireTrail.length; i++) {
+            var frac = i / fireTrail.length;
+            var r = (isPowerShot ? 5 : 3.5) * frac;
+            // Interpolate color: red at tail -> orange in middle -> yellow near head
+            var red = 255;
+            var green = Math.floor(50 + frac * 150);
+            var blue = Math.floor(frac * 30);
+            var alpha = 0.3 + frac * 0.5;
+            ctx.fillStyle = 'rgba(' + red + ', ' + green + ', ' + blue + ', ' + alpha.toFixed(3) + ')';
+            ctx.beginPath();
+            ctx.arc(fireTrail[i].x, fireTrail[i].y, r, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
     function drawProjectile() {
         if (!projectile) return;
-        // Glow
-        ctx.fillStyle = 'rgba(255, 100, 30, 0.4)';
-        ctx.beginPath();
-        ctx.arc(projectile.x, projectile.y, PROJECTILE_R * 3, 0, Math.PI * 2);
-        ctx.fill();
+
+        var projR = isPowerShot ? PROJECTILE_R * 1.4 : PROJECTILE_R;
+
+        // Glow with shadowBlur
+        ctx.save();
+        ctx.shadowColor = isPowerShot ? 'rgba(255, 60, 0, 0.8)' : 'rgba(255, 100, 30, 0.6)';
+        ctx.shadowBlur = isPowerShot ? 20 : 12;
+
+        // Rotation animation around projectile
+        ctx.save();
+        ctx.translate(projectile.x, projectile.y);
+        ctx.rotate(projectile.rotation);
 
         // Core
-        ctx.fillStyle = '#ff6633';
+        ctx.fillStyle = isPowerShot ? '#ff4400' : '#ff6633';
         ctx.beginPath();
-        ctx.arc(projectile.x, projectile.y, PROJECTILE_R, 0, Math.PI * 2);
+        ctx.arc(0, 0, projR, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore(); // undo translate/rotate
+        ctx.restore(); // undo shadow
+
+        // Outer glow (no shadow)
+        ctx.fillStyle = isPowerShot ? 'rgba(255, 60, 0, 0.35)' : 'rgba(255, 100, 30, 0.3)';
+        ctx.beginPath();
+        ctx.arc(projectile.x, projectile.y, projR * 3, 0, Math.PI * 2);
         ctx.fill();
 
         // Bright center
         ctx.fillStyle = '#ffcc00';
         ctx.beginPath();
-        ctx.arc(projectile.x, projectile.y, PROJECTILE_R * 0.5, 0, Math.PI * 2);
+        ctx.arc(projectile.x, projectile.y, projR * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Extra bright point
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(projectile.x, projectile.y, projR * 0.2, 0, Math.PI * 2);
         ctx.fill();
     }
 
@@ -1000,6 +1479,52 @@
             ctx.fill();
         }
         ctx.globalAlpha = 1;
+    }
+
+    function drawSmokeParticles() {
+        for (var i = 0; i < smokeParticles.length; i++) {
+            var sm = smokeParticles[i];
+            var lifeFrac = sm.life / sm.maxLife;
+            var alpha = sm.alpha * lifeFrac * 0.6;
+            var gray = 120 + Math.floor((1 - lifeFrac) * 80);
+            ctx.fillStyle = 'rgba(' + gray + ', ' + gray + ', ' + gray + ', ' + alpha.toFixed(3) + ')';
+            ctx.beginPath();
+            ctx.arc(sm.x, sm.y, sm.r, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    function drawShockwaves() {
+        for (var i = 0; i < shockwaves.length; i++) {
+            var sw = shockwaves[i];
+            if (sw.alpha <= 0) continue;
+            ctx.strokeStyle = 'rgba(255, 255, 255, ' + clamp(sw.alpha, 0, 1).toFixed(3) + ')';
+            ctx.lineWidth = sw.lineWidth * sw.alpha;
+            ctx.beginPath();
+            ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+    }
+
+    function drawPowerShotText() {
+        if (!powerShotText.active) return;
+        var alpha = clamp(powerShotText.timer / 1.5, 0, 1);
+        // Scale up then fade
+        var scale = 1 + (1 - alpha) * 0.5;
+        ctx.save();
+        ctx.translate(powerShotText.x, powerShotText.y);
+        ctx.scale(scale, scale);
+        ctx.font = 'bold 18px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        // Outline
+        ctx.strokeStyle = 'rgba(0, 0, 0, ' + (alpha * 0.7).toFixed(3) + ')';
+        ctx.lineWidth = 3;
+        ctx.strokeText('POWER SHOT!', 0, 0);
+        // Fill with gradient from orange to red
+        ctx.fillStyle = 'rgba(255, 80, 0, ' + alpha.toFixed(3) + ')';
+        ctx.fillText('POWER SHOT!', 0, 0);
+        ctx.restore();
     }
 
     // ── Helpers ──

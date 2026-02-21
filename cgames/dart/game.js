@@ -41,7 +41,7 @@
     var bustTimer = 0;
 
     var players = [];
-    var landedDarts = [];      // {x, y, player, score, label}
+    var landedDarts = [];      // {x, y, player, score, label, angle}
 
     // Crosshair state
     var crosshair = { x: 0, y: 0 };
@@ -60,6 +60,13 @@
 
     // Round tracking for free play
     var currentRound = 1;
+
+    // ── Visual effects state ──
+    var ripples = [];          // {x, y, radius, maxRadius, alpha, color}
+    var scorePopups = [];      // {x, y, text, life, maxLife, color, vy}
+    var particles = [];        // {x, y, vx, vy, life, maxLife, color, size}
+    var bullseyeFlash = 0;     // timer for bullseye flash effect
+    var dartTrail = [];        // {x, y, alpha} trail points during flight
 
     // ── DOM refs ──
     var elP1Hud, elP2Hud, elP1Score, elP2Score;
@@ -181,6 +188,13 @@
         turnScores = [];
         aimTime = 0;
 
+        // Reset visual effects
+        ripples = [];
+        scorePopups = [];
+        particles = [];
+        bullseyeFlash = 0;
+        dartTrail = [];
+
         // Update HUD
         if (numPlayers === 2) {
             elP2Hud.classList.remove('hidden');
@@ -264,6 +278,9 @@
             done: false
         };
 
+        // Reset trail
+        dartTrail = [];
+
         CGameAudio.play('whoosh');
     }
 
@@ -272,18 +289,37 @@
         var dy = dartAnim.endY - boardCY;
         var result = calcScore(dx, dy);
 
+        // Compute dart angle from flight path
+        var flightAngle = Math.atan2(
+            dartAnim.endY - dartAnim.startY,
+            dartAnim.endX - dartAnim.startX
+        );
+
         var dart = {
             x: dartAnim.endX,
             y: dartAnim.endY,
             player: currentPlayer,
             score: result.points,
-            label: result.label
+            label: result.label,
+            angle: flightAngle
         };
 
         landedDarts.push(dart);
         dartsThrown++;
         players[currentPlayer].totalDarts++;
         turnScores.push(result.points);
+
+        // Spawn impact ripple
+        spawnRipple(dart.x, dart.y, result.points);
+
+        // Spawn score popup
+        spawnScorePopup(dart.x, dart.y, result);
+
+        // Bullseye celebration
+        if (result.isBull && result.points === 50) {
+            spawnBullseyeCelebration(dart.x, dart.y);
+            bullseyeFlash = 0.5;
+        }
 
         if (result.points >= 40) {
             CGameAudio.play('score');
@@ -606,6 +642,121 @@
                 elLastThrow.textContent = pLabel + '\'s turn - Remaining: ' + players[currentPlayer].score;
             }
         }
+
+        // Update visual effects
+        updateRipples(dt);
+        updateScorePopups(dt);
+        updateParticles(dt);
+        if (bullseyeFlash > 0) bullseyeFlash -= dt;
+    }
+
+    // ── Visual Effects Update ──
+    function updateRipples(dt) {
+        for (var i = ripples.length - 1; i >= 0; i--) {
+            var r = ripples[i];
+            r.radius += dt * 120;
+            r.alpha -= dt * 2.0;
+            if (r.alpha <= 0 || r.radius >= r.maxRadius) {
+                ripples.splice(i, 1);
+            }
+        }
+    }
+
+    function updateScorePopups(dt) {
+        for (var i = scorePopups.length - 1; i >= 0; i--) {
+            var p = scorePopups[i];
+            p.life -= dt;
+            p.y += p.vy * dt;
+            if (p.life <= 0) {
+                scorePopups.splice(i, 1);
+            }
+        }
+    }
+
+    function updateParticles(dt) {
+        for (var i = particles.length - 1; i >= 0; i--) {
+            var p = particles[i];
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.vy += 80 * dt; // gravity
+            p.life -= dt;
+            if (p.life <= 0) {
+                particles.splice(i, 1);
+            }
+        }
+    }
+
+    function spawnRipple(x, y, points) {
+        var col = points >= 40 ? '#ffd700' : points > 0 ? '#ffffff' : '#ff4444';
+        var maxR = points >= 40 ? 50 : 30;
+        ripples.push({ x: x, y: y, radius: 3, maxRadius: maxR, alpha: 0.7, color: col });
+        if (points >= 40) {
+            ripples.push({ x: x, y: y, radius: 1, maxRadius: 65, alpha: 0.4, color: col });
+        }
+    }
+
+    function spawnScorePopup(x, y, result) {
+        var text, color;
+        if (result.points === 0) {
+            text = 'MISS';
+            color = '#ff4444';
+        } else if (result.isBull && result.points === 50) {
+            text = 'BULLSEYE!';
+            color = '#ffd700';
+        } else if (result.isBull && result.points === 25) {
+            text = 'BULL 25';
+            color = '#ffcc00';
+        } else if (result.label.charAt(0) === 'T') {
+            text = 'TRIPLE ' + result.label.substring(1, result.label.indexOf(' ')) + '!';
+            color = '#ff6600';
+        } else if (result.label.charAt(0) === 'D') {
+            text = 'DOUBLE ' + result.label.substring(1, result.label.indexOf(' '));
+            color = '#44ccff';
+        } else {
+            text = '+' + result.points;
+            color = '#ffffff';
+        }
+        scorePopups.push({
+            x: x,
+            y: y - 15,
+            text: text,
+            life: 1.5,
+            maxLife: 1.5,
+            color: color,
+            vy: -45
+        });
+    }
+
+    function spawnBullseyeCelebration(x, y) {
+        var goldColors = ['#ffd700', '#ffaa00', '#ffee44', '#fff4b0', '#ff8800'];
+        for (var i = 0; i < 30; i++) {
+            var angle = Math.random() * Math.PI * 2;
+            var speed = 40 + Math.random() * 120;
+            particles.push({
+                x: x,
+                y: y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed - 40,
+                life: 0.8 + Math.random() * 0.7,
+                maxLife: 1.5,
+                color: goldColors[Math.floor(Math.random() * goldColors.length)],
+                size: 1.5 + Math.random() * 3
+            });
+        }
+    }
+
+    // ── Determine which segment the crosshair is aiming at ──
+    function getAimedSegmentIndex() {
+        var dx = crosshair.x - boardCX;
+        var dy = crosshair.y - boardCY;
+        var angle = Math.atan2(dy, dx);
+        var segAngle = angle + Math.PI / 2 + SEGMENT_ANGLE / 2;
+        if (segAngle < 0) segAngle += Math.PI * 2;
+        if (segAngle >= Math.PI * 2) segAngle -= Math.PI * 2;
+        var segIndex = Math.floor(segAngle / SEGMENT_ANGLE);
+        if (segIndex < 0) segIndex = 0;
+        if (segIndex > 19) segIndex = 19;
+        return segIndex;
     }
 
     // ── Rendering ──
@@ -616,12 +767,33 @@
         ctx.fillStyle = bgColor;
         ctx.fillRect(0, 0, W, H);
 
+        drawBoardShadow();
         drawDartboard();
+        drawRipples();
         drawLandedDarts();
         drawDartAnimation();
+        drawParticles();
+        drawScorePopups();
         if (canThrow && !waitingNextTurn && !bustShowing) {
             drawCrosshair();
         }
+    }
+
+    // ── Board Shadow ──
+    function drawBoardShadow() {
+        var cx = boardCX;
+        var cy = boardCY;
+        var R = boardRadius;
+
+        // Drop shadow - dark circle offset down-right
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx + R * 0.03, cy + R * 0.04, R * 1.04, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+        ctx.filter = 'blur(8px)';
+        ctx.fill();
+        ctx.filter = 'none';
+        ctx.restore();
     }
 
     function drawDartboard() {
@@ -629,13 +801,22 @@
         var cy = boardCY;
         var R = boardRadius;
 
+        // Wood ring around the board
+        drawWoodRing(cx, cy, R);
+
         // Background circle
         ctx.beginPath();
-        ctx.arc(cx, cy, R, 0, Math.PI * 2);
+        ctx.arc(cx, cy, R * DOUBLE_OUTER_R, 0, Math.PI * 2);
         ctx.fillStyle = COL_BOARD_BG;
         ctx.fill();
 
-        // Draw segments
+        // Get aimed segment for glow effect
+        var aimedSeg = -1;
+        if (canThrow && !waitingNextTurn && !bustShowing) {
+            aimedSeg = getAimedSegmentIndex();
+        }
+
+        // Draw segments with gradients
         for (var i = 0; i < 20; i++) {
             var startAngle = -Math.PI / 2 - SEGMENT_ANGLE / 2 + i * SEGMENT_ANGLE;
             var endAngle = startAngle + SEGMENT_ANGLE;
@@ -643,115 +824,325 @@
             var isEven = (i % 2 === 0);
 
             // Outer single (between triple and double)
-            drawSegment(cx, cy, R * TRIPLE_OUTER_R, R * DOUBLE_INNER_R, startAngle, endAngle,
-                isEven ? COL_BLACK : COL_WHITE);
+            drawSegmentGradient(cx, cy, R * TRIPLE_OUTER_R, R * DOUBLE_INNER_R, startAngle, endAngle,
+                isEven ? COL_BLACK : COL_WHITE, isEven ? '#2a2a2a' : '#e8dcc0');
 
             // Inner single (between bull and triple)
-            drawSegment(cx, cy, R * BULL_OUTER_R, R * TRIPLE_INNER_R, startAngle, endAngle,
-                isEven ? COL_BLACK : COL_WHITE);
+            drawSegmentGradient(cx, cy, R * BULL_OUTER_R, R * TRIPLE_INNER_R, startAngle, endAngle,
+                isEven ? COL_BLACK : COL_WHITE, isEven ? '#2a2a2a' : '#e8dcc0');
 
             // Double ring
-            drawSegment(cx, cy, R * DOUBLE_INNER_R, R * DOUBLE_OUTER_R, startAngle, endAngle,
-                isEven ? COL_RED : COL_GREEN);
+            drawSegmentGradient(cx, cy, R * DOUBLE_INNER_R, R * DOUBLE_OUTER_R, startAngle, endAngle,
+                isEven ? '#e83030' : '#22a83a', isEven ? '#a81818' : '#146820');
 
             // Triple ring
-            drawSegment(cx, cy, R * TRIPLE_INNER_R, R * TRIPLE_OUTER_R, startAngle, endAngle,
-                isEven ? COL_RED : COL_GREEN);
+            drawSegmentGradient(cx, cy, R * TRIPLE_INNER_R, R * TRIPLE_OUTER_R, startAngle, endAngle,
+                isEven ? '#e83030' : '#22a83a', isEven ? '#a81818' : '#146820');
         }
 
-        // Outer bull
+        // Outer bull (with gradient)
+        var bullGrad = ctx.createRadialGradient(cx, cy, R * BULL_INNER_R, cx, cy, R * BULL_OUTER_R);
+        bullGrad.addColorStop(0, '#22a83a');
+        bullGrad.addColorStop(1, '#146820');
         ctx.beginPath();
         ctx.arc(cx, cy, R * BULL_OUTER_R, 0, Math.PI * 2);
-        ctx.fillStyle = COL_GREEN;
+        ctx.fillStyle = bullGrad;
         ctx.fill();
 
-        // Inner bull
+        // Inner bull (with gradient + optional flash)
+        var innerBullGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * BULL_INNER_R);
+        if (bullseyeFlash > 0) {
+            var flashAlpha = Math.min(1, bullseyeFlash * 2);
+            innerBullGrad.addColorStop(0, 'rgba(255, 240, 100, ' + flashAlpha + ')');
+            innerBullGrad.addColorStop(0.5, '#ff3030');
+            innerBullGrad.addColorStop(1, '#b01515');
+        } else {
+            innerBullGrad.addColorStop(0, '#e83030');
+            innerBullGrad.addColorStop(1, '#a81818');
+        }
         ctx.beginPath();
         ctx.arc(cx, cy, R * BULL_INNER_R, 0, Math.PI * 2);
-        ctx.fillStyle = COL_RED;
+        ctx.fillStyle = innerBullGrad;
         ctx.fill();
 
-        // Wire lines
-        ctx.strokeStyle = COL_WIRE;
-        ctx.lineWidth = 0.8;
+        // Wire lines with 3D metallic effect
+        drawWires(cx, cy, R);
 
-        // Radial wires
+        // Numbers with glow for aimed segment
+        drawNumbers(cx, cy, R, aimedSeg);
+    }
+
+    function drawWoodRing(cx, cy, R) {
+        var outerR = R * 1.02;
+        var innerR = R * DOUBLE_OUTER_R;
+
+        // Wood base ring
+        var woodGrad = ctx.createRadialGradient(cx, cy, innerR, cx, cy, outerR);
+        woodGrad.addColorStop(0, '#5a3a1a');
+        woodGrad.addColorStop(0.3, '#6b4423');
+        woodGrad.addColorStop(0.6, '#543218');
+        woodGrad.addColorStop(1, '#3a2210');
+        ctx.beginPath();
+        ctx.arc(cx, cy, outerR, 0, Math.PI * 2);
+        ctx.arc(cx, cy, innerR, 0, Math.PI * 2, true);
+        ctx.closePath();
+        ctx.fillStyle = woodGrad;
+        ctx.fill();
+
+        // Subtle wood grain lines
+        ctx.save();
+        ctx.globalAlpha = 0.15;
+        ctx.strokeStyle = '#2a1808';
+        ctx.lineWidth = 0.5;
+        for (var a = 0; a < Math.PI * 2; a += 0.3) {
+            ctx.beginPath();
+            ctx.arc(cx, cy, innerR + (outerR - innerR) * (0.2 + Math.sin(a * 7) * 0.15), a, a + 0.2);
+            ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        ctx.restore();
+    }
+
+    function drawSegmentGradient(cx, cy, innerR, outerR, startAngle, endAngle, innerColor, outerColor) {
+        // Create radial gradient from inner to outer
+        var grad = ctx.createRadialGradient(cx, cy, innerR, cx, cy, outerR);
+        grad.addColorStop(0, innerColor);
+        grad.addColorStop(1, outerColor);
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, outerR, startAngle, endAngle);
+        ctx.arc(cx, cy, innerR, endAngle, startAngle, true);
+        ctx.closePath();
+        ctx.fillStyle = grad;
+        ctx.fill();
+    }
+
+    function drawWires(cx, cy, R) {
+        // Radial wires with 3D effect
         for (var i = 0; i < 20; i++) {
             var angle = -Math.PI / 2 - SEGMENT_ANGLE / 2 + i * SEGMENT_ANGLE;
+            var x1 = cx + Math.cos(angle) * R * BULL_OUTER_R;
+            var y1 = cy + Math.sin(angle) * R * BULL_OUTER_R;
+            var x2 = cx + Math.cos(angle) * R * DOUBLE_OUTER_R;
+            var y2 = cy + Math.sin(angle) * R * DOUBLE_OUTER_R;
+
+            // Dark shadow line
             ctx.beginPath();
-            ctx.moveTo(cx + Math.cos(angle) * R * BULL_OUTER_R, cy + Math.sin(angle) * R * BULL_OUTER_R);
-            ctx.lineTo(cx + Math.cos(angle) * R * DOUBLE_OUTER_R, cy + Math.sin(angle) * R * DOUBLE_OUTER_R);
+            ctx.moveTo(x1 + 0.5, y1 + 0.5);
+            ctx.lineTo(x2 + 0.5, y2 + 0.5);
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+
+            // Main wire
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.strokeStyle = '#999';
+            ctx.lineWidth = 0.9;
+            ctx.stroke();
+
+            // Highlight line
+            ctx.beginPath();
+            ctx.moveTo(x1 - 0.4, y1 - 0.4);
+            ctx.lineTo(x2 - 0.4, y2 - 0.4);
+            ctx.strokeStyle = 'rgba(200, 200, 200, 0.4)';
+            ctx.lineWidth = 0.5;
             ctx.stroke();
         }
 
-        // Ring wires
+        // Ring wires with 3D effect
         var rings = [BULL_INNER_R, BULL_OUTER_R, TRIPLE_INNER_R, TRIPLE_OUTER_R, DOUBLE_INNER_R, DOUBLE_OUTER_R];
         for (var r = 0; r < rings.length; r++) {
+            var radius = R * rings[r];
+
+            // Dark shadow
             ctx.beginPath();
-            ctx.arc(cx, cy, R * rings[r], 0, Math.PI * 2);
+            ctx.arc(cx + 0.5, cy + 0.5, radius, 0, Math.PI * 2);
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+
+            // Main wire
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+            ctx.strokeStyle = '#999';
+            ctx.lineWidth = 0.9;
+            ctx.stroke();
+
+            // Highlight
+            ctx.beginPath();
+            ctx.arc(cx - 0.3, cy - 0.3, radius, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(200, 200, 200, 0.35)';
+            ctx.lineWidth = 0.4;
             ctx.stroke();
         }
+    }
 
-        // Numbers
+    function drawNumbers(cx, cy, R, aimedSeg) {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         var numSize = Math.max(10, R * 0.065);
         ctx.font = 'bold ' + numSize + 'px "Segoe UI", sans-serif';
-        ctx.fillStyle = COL_WHITE;
 
         for (var i = 0; i < 20; i++) {
             var angle = -Math.PI / 2 + i * SEGMENT_ANGLE;
             var nx = cx + Math.cos(angle) * R * NUMBER_R;
             var ny = cy + Math.sin(angle) * R * NUMBER_R;
 
+            var isAimed = (i === aimedSeg);
+
+            ctx.save();
+
+            // Glow effect for aimed segment number
+            if (isAimed) {
+                ctx.shadowColor = '#ffd700';
+                ctx.shadowBlur = 14;
+                ctx.fillStyle = '#ffd700';
+                ctx.fillText(BOARD_NUMBERS[i], nx, ny);
+                ctx.shadowBlur = 0;
+            }
+
+            ctx.restore();
+
             // Draw shadow for readability
             ctx.fillStyle = 'rgba(0,0,0,0.5)';
             ctx.fillText(BOARD_NUMBERS[i], nx + 1, ny + 1);
-            ctx.fillStyle = COL_WHITE;
+
+            // Main text
+            ctx.fillStyle = isAimed ? '#ffd700' : COL_WHITE;
             ctx.fillText(BOARD_NUMBERS[i], nx, ny);
         }
     }
 
-    function drawSegment(cx, cy, innerR, outerR, startAngle, endAngle, color) {
-        ctx.beginPath();
-        ctx.arc(cx, cy, outerR, startAngle, endAngle);
-        ctx.arc(cx, cy, innerR, endAngle, startAngle, true);
-        ctx.closePath();
-        ctx.fillStyle = color;
-        ctx.fill();
+    // ── Ripple Effects ──
+    function drawRipples() {
+        for (var i = 0; i < ripples.length; i++) {
+            var r = ripples[i];
+            ctx.beginPath();
+            ctx.arc(r.x, r.y, r.radius, 0, Math.PI * 2);
+            ctx.strokeStyle = r.color;
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = r.alpha;
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+        }
     }
 
+    // ── Particles ──
+    function drawParticles() {
+        for (var i = 0; i < particles.length; i++) {
+            var p = particles[i];
+            var alpha = Math.max(0, p.life / p.maxLife);
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Small glow
+            ctx.save();
+            ctx.shadowColor = p.color;
+            ctx.shadowBlur = 4;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size * alpha * 0.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    // ── Score Popups ──
+    function drawScorePopups() {
+        for (var i = 0; i < scorePopups.length; i++) {
+            var p = scorePopups[i];
+            var alpha = Math.max(0, p.life / p.maxLife);
+            var scale = 0.8 + (1 - alpha) * 0.4;
+            var fontSize = Math.max(12, boardRadius * 0.07) * scale;
+
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.font = 'bold ' + fontSize + 'px "Segoe UI", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            // Text outline
+            ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+            ctx.lineWidth = 3;
+            ctx.strokeText(p.text, p.x, p.y);
+
+            // Text fill
+            ctx.fillStyle = p.color;
+            ctx.fillText(p.text, p.x, p.y);
+
+            // Glow for high-value hits
+            if (p.color === '#ffd700' || p.color === '#ff6600') {
+                ctx.shadowColor = p.color;
+                ctx.shadowBlur = 10;
+                ctx.fillText(p.text, p.x, p.y);
+            }
+
+            ctx.restore();
+        }
+    }
+
+    // ── Landed Darts (dart shapes) ──
     function drawLandedDarts() {
         for (var i = 0; i < landedDarts.length; i++) {
             var d = landedDarts[i];
             var col = d.player === 0 ? getCSS('--p1-color') : getCSS('--p2-color');
             var colLight = d.player === 0 ? getCSS('--p1-light') : getCSS('--p2-light');
 
-            // Dart marker: small circle with inner dot
-            ctx.beginPath();
-            ctx.arc(d.x, d.y, 6, 0, Math.PI * 2);
-            ctx.fillStyle = col;
-            ctx.fill();
-            ctx.strokeStyle = colLight;
-            ctx.lineWidth = 1.5;
-            ctx.stroke();
-
-            // Inner dot
-            ctx.beginPath();
-            ctx.arc(d.x, d.y, 2, 0, Math.PI * 2);
-            ctx.fillStyle = '#fff';
-            ctx.fill();
-
-            // Score label
-            if (d.label) {
-                ctx.font = 'bold ' + Math.max(9, boardRadius * 0.04) + 'px "Segoe UI", sans-serif';
-                ctx.fillStyle = '#fff';
-                ctx.strokeStyle = 'rgba(0,0,0,0.7)';
-                ctx.lineWidth = 2.5;
-                ctx.strokeText(d.label, d.x, d.y - 12);
-                ctx.fillText(d.label, d.x, d.y - 12);
-            }
+            drawDartShape(d.x, d.y, d.angle, col, colLight);
         }
+    }
+
+    function drawDartShape(x, y, angle, color, lightColor) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(angle);
+
+        // The dart is oriented along the positive X axis (tip at right).
+        // Since the dart flies from bottom to target, the tip points toward the board.
+
+        var tipLen = 5;
+        var shaftLen = 14;
+        var flightLen = 10;
+        var shaftWidth = 1.8;
+        var flightWidth = 5;
+
+        // Point / tip (silver)
+        ctx.beginPath();
+        ctx.moveTo(tipLen, 0);
+        ctx.lineTo(0, -shaftWidth * 0.6);
+        ctx.lineTo(0, shaftWidth * 0.6);
+        ctx.closePath();
+        ctx.fillStyle = '#ccc';
+        ctx.fill();
+
+        // Shaft (darker)
+        ctx.fillStyle = '#444';
+        ctx.fillRect(-shaftLen, -shaftWidth / 2, shaftLen, shaftWidth);
+
+        // Flight (player colored) - triangle at the back
+        ctx.beginPath();
+        ctx.moveTo(-shaftLen, 0);
+        ctx.lineTo(-shaftLen - flightLen, -flightWidth);
+        ctx.lineTo(-shaftLen - flightLen, flightWidth);
+        ctx.closePath();
+        ctx.fillStyle = color;
+        ctx.fill();
+
+        // Flight outline for visibility
+        ctx.strokeStyle = lightColor || '#fff';
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+
+        // Small highlight on shaft
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fillRect(-shaftLen, -shaftWidth / 2, shaftLen, shaftWidth * 0.4);
+
+        ctx.restore();
     }
 
     function drawDartAnimation() {
@@ -765,27 +1156,44 @@
         var y = dartAnim.startY + (dartAnim.endY - dartAnim.startY) * ease;
 
         var col = dartAnim.player === 0 ? getCSS('--p1-color') : getCSS('--p2-color');
+        var colLight = dartAnim.player === 0 ? getCSS('--p1-light') : getCSS('--p2-light');
 
-        // Trail
-        ctx.beginPath();
-        ctx.moveTo(dartAnim.startX + (dartAnim.endX - dartAnim.startX) * Math.max(0, ease - 0.2),
-            dartAnim.startY + (dartAnim.endY - dartAnim.startY) * Math.max(0, ease - 0.2));
-        ctx.lineTo(x, y);
-        ctx.strokeStyle = col;
-        ctx.lineWidth = 2;
-        ctx.globalAlpha = 0.5;
-        ctx.stroke();
-        ctx.globalAlpha = 1;
+        // Store trail point
+        dartTrail.push({ x: x, y: y, alpha: 1.0 });
+        // Fade older trail points
+        for (var ti = 0; ti < dartTrail.length; ti++) {
+            dartTrail[ti].alpha -= 0.08;
+        }
+        // Remove dead trail points
+        while (dartTrail.length > 0 && dartTrail[0].alpha <= 0) {
+            dartTrail.shift();
+        }
 
-        // Dart tip
-        ctx.beginPath();
-        ctx.arc(x, y, 5, 0, Math.PI * 2);
-        ctx.fillStyle = col;
-        ctx.fill();
-        ctx.fillStyle = '#fff';
-        ctx.beginPath();
-        ctx.arc(x, y, 2, 0, Math.PI * 2);
-        ctx.fill();
+        // Draw motion trail
+        if (dartTrail.length > 1) {
+            for (var ti = 1; ti < dartTrail.length; ti++) {
+                var t0 = dartTrail[ti - 1];
+                var t1 = dartTrail[ti];
+                ctx.beginPath();
+                ctx.moveTo(t0.x, t0.y);
+                ctx.lineTo(t1.x, t1.y);
+                ctx.strokeStyle = col;
+                ctx.lineWidth = 2.5 * t1.alpha;
+                ctx.globalAlpha = t1.alpha * 0.5;
+                ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        // Calculate flight angle and add spin rotation
+        var flightAngle = Math.atan2(
+            dartAnim.endY - dartAnim.startY,
+            dartAnim.endX - dartAnim.startX
+        );
+        var spinAngle = flightAngle + Math.sin(progress * Math.PI * 6) * 0.25;
+
+        // Draw rotating dart shape
+        drawDartShape(x, y, spinAngle, col, colLight);
     }
 
     function drawCrosshair() {
@@ -793,6 +1201,29 @@
         var y = crosshair.y;
         var size = 14;
 
+        ctx.save();
+
+        // Outer reticle rings (pulsing)
+        var pulse = 0.4 + Math.sin(aimTime * 5) * 0.2;
+        var pulse2 = 0.3 + Math.sin(aimTime * 5 + 1) * 0.15;
+
+        // Outer pulsing reticle circle
+        ctx.beginPath();
+        ctx.arc(x, y, size + 6 + Math.sin(aimTime * 4) * 2, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255, 255, 255, ' + pulse2 + ')';
+        ctx.lineWidth = 0.6;
+        ctx.stroke();
+
+        // Middle reticle circle
+        ctx.beginPath();
+        ctx.arc(x, y, size + 2, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255, 255, 255, ' + pulse + ')';
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+
+        // Glowing crosshair lines
+        ctx.shadowColor = 'rgba(255, 255, 255, 0.8)';
+        ctx.shadowBlur = 6;
         ctx.strokeStyle = 'rgba(255,255,255,0.85)';
         ctx.lineWidth = 1.5;
 
@@ -816,20 +1247,16 @@
         ctx.lineTo(x, y + size);
         ctx.stroke();
 
-        // Center circle
+        // Center dot with glow
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = 'rgba(255, 200, 50, 0.7)';
         ctx.beginPath();
         ctx.arc(x, y, 3.5, 0, Math.PI * 2);
         ctx.strokeStyle = 'rgba(255,255,255,0.7)';
         ctx.lineWidth = 1;
         ctx.stroke();
 
-        // Outer ring (pulsing)
-        var pulse = 0.6 + Math.sin(aimTime * 6) * 0.15;
-        ctx.beginPath();
-        ctx.arc(x, y, size + 2, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(255,255,255,' + pulse + ')';
-        ctx.lineWidth = 0.8;
-        ctx.stroke();
+        ctx.restore();
     }
 
     function getCSS(prop) {

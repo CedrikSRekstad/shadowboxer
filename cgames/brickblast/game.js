@@ -34,6 +34,16 @@
     var POWERUP_TYPES = ['W', 'M', 'F'];
     var POWERUP_COLORS = { W: '#44cc44', M: '#ff8844', F: '#ff4444' };
 
+    // ─── Visual Constants ───
+    var BALL_TRAIL_LENGTH = 8;
+    var BRICK_CORNER_RADIUS = 4;
+    var SCREEN_SHAKE_INTENSITY = 4;
+    var SCREEN_SHAKE_DECAY = 0.9;
+    var SPARKLE_COUNT = 2;
+    var SPARKLE_LIFE = 0.5;
+    var PADDLE_FLASH_DURATION = 0.15;
+    var PARTICLE_GRAVITY = 400;
+
     // ─── Level Patterns ───
     // 1 = brick, 0 = empty. Each level is BRICK_ROWS x BRICK_COLS
     var LEVELS = [
@@ -83,6 +93,11 @@
 
     // Particles
     var particles = [];
+
+    // ─── Visual State ───
+    var screenShake = { x: 0, y: 0, intensity: 0 };
+    var sparkleParticles = [];
+    var paddleFlashTimers = {}; // keyed by 'sp', '0', '1'
 
     // Input
     var keys = {};
@@ -222,6 +237,9 @@
         paused = false;
         gameRunning = false;
         particles = [];
+        sparkleParticles = [];
+        screenShake = { x: 0, y: 0, intensity: 0 };
+        paddleFlashTimers = {};
         pauseOverlay.classList.add('hidden');
 
         resizeCanvas();
@@ -324,7 +342,8 @@
                         w: state.brickW,
                         h: state.brickH,
                         row: r,
-                        alive: true
+                        alive: true,
+                        hits: 0 // track hits for crack effect
                     });
                 }
             }
@@ -352,7 +371,8 @@
             vy: 0,
             speed: BASE_BALL_SPEED + (state.level ? (state.level - 1) * 20 : 0),
             fireball: false,
-            stuck: true
+            stuck: true,
+            trail: [] // ball trail positions
         });
     }
 
@@ -422,7 +442,8 @@
                     w: f.brickW,
                     h: f.brickH,
                     row: r,
-                    alive: true
+                    alive: true,
+                    hits: 0
                 });
             }
         }
@@ -449,7 +470,8 @@
             vy: 0,
             speed: BASE_BALL_SPEED,
             fireball: false,
-            stuck: true
+            stuck: true,
+            trail: []
         });
     }
 
@@ -486,10 +508,14 @@
     // ─── Update ───
     function update(dt) {
         updateParticles(dt);
+        updateSparkles(dt);
+        updateScreenShake(dt);
+        updatePaddleFlashTimers(dt);
 
         if (mode === 1) {
             updateField(sp, dt, 0, W);
             updatePowerupTimers(sp, dt);
+            updateBallTrails(sp);
             updateHUD1P();
         } else {
             twoPlayerTimer -= dt;
@@ -502,6 +528,7 @@
                 var ox = i * (W / 2);
                 updateField(fields[i], dt, ox, W / 2);
                 updatePowerupTimers(fields[i], dt);
+                updateBallTrails(fields[i]);
             }
             // Check if either player cleared all bricks
             for (var j = 0; j < 2; j++) {
@@ -513,6 +540,79 @@
             }
             updateHUD2P();
         }
+    }
+
+    // ─── Visual Update Helpers ───
+    function updateBallTrails(state) {
+        for (var i = 0; i < state.balls.length; i++) {
+            var b = state.balls[i];
+            if (!b.trail) b.trail = [];
+            if (!b.stuck) {
+                b.trail.push({ x: b.x, y: b.y });
+                if (b.trail.length > BALL_TRAIL_LENGTH) {
+                    b.trail.shift();
+                }
+            } else {
+                b.trail = [];
+            }
+        }
+    }
+
+    function updateScreenShake(dt) {
+        if (screenShake.intensity > 0.1) {
+            screenShake.x = (Math.random() - 0.5) * 2 * screenShake.intensity;
+            screenShake.y = (Math.random() - 0.5) * 2 * screenShake.intensity;
+            screenShake.intensity *= SCREEN_SHAKE_DECAY;
+        } else {
+            screenShake.x = 0;
+            screenShake.y = 0;
+            screenShake.intensity = 0;
+        }
+    }
+
+    function triggerScreenShake() {
+        screenShake.intensity = SCREEN_SHAKE_INTENSITY;
+    }
+
+    function updateSparkles(dt) {
+        for (var i = sparkleParticles.length - 1; i >= 0; i--) {
+            var s = sparkleParticles[i];
+            s.x += s.vx * dt;
+            s.y += s.vy * dt;
+            s.vy += 60 * dt; // light gravity on sparkles
+            s.life -= dt;
+            if (s.life <= 0) sparkleParticles.splice(i, 1);
+        }
+    }
+
+    function spawnSparkles(x, y, color) {
+        for (var i = 0; i < SPARKLE_COUNT; i++) {
+            var angle = Math.random() * Math.PI * 2;
+            var spd = 20 + Math.random() * 60;
+            sparkleParticles.push({
+                x: x + (Math.random() - 0.5) * 10,
+                y: y + (Math.random() - 0.5) * 6,
+                vx: Math.cos(angle) * spd,
+                vy: Math.sin(angle) * spd - 20,
+                life: SPARKLE_LIFE + Math.random() * 0.3,
+                maxLife: SPARKLE_LIFE + 0.3,
+                color: color,
+                size: 1.5 + Math.random() * 2.5
+            });
+        }
+    }
+
+    function updatePaddleFlashTimers(dt) {
+        for (var key in paddleFlashTimers) {
+            paddleFlashTimers[key] -= dt;
+            if (paddleFlashTimers[key] <= 0) {
+                delete paddleFlashTimers[key];
+            }
+        }
+    }
+
+    function triggerPaddleFlash(stateKey) {
+        paddleFlashTimers[stateKey] = PADDLE_FLASH_DURATION;
     }
 
     function updateField(state, dt, fieldX, fieldW) {
@@ -561,6 +661,10 @@
                 b.vx = Math.cos(angle) * b.speed;
                 b.vy = Math.sin(angle) * b.speed;
                 CGameAudio.play('bounce');
+
+                // Trigger paddle flash
+                var flashKey = mode === 1 ? 'sp' : String(state.player);
+                triggerPaddleFlash(flashKey);
             }
 
             // Brick collisions
@@ -576,6 +680,9 @@
                     // Particles
                     var color = ROW_COLORS[brick.row % ROW_COLORS.length].fill;
                     spawnParticles(fieldX + brick.x + brick.w / 2, brick.y + brick.h / 2, color);
+
+                    // Screen shake on brick break
+                    triggerScreenShake();
 
                     // Powerup drop
                     if (Math.random() < POWERUP_CHANCE) {
@@ -636,6 +743,10 @@
         for (var k = state.powerups.length - 1; k >= 0; k--) {
             var pu = state.powerups[k];
             pu.y += POWERUP_SPEED * dt;
+
+            // Spawn sparkle trail behind falling powerups
+            var puColor = POWERUP_COLORS[pu.type];
+            spawnSparkles(fieldX + pu.x + POWERUP_SIZE / 2, pu.y + POWERUP_SIZE, puColor);
 
             // Catch
             if (pu.y + POWERUP_SIZE >= state.paddle.y &&
@@ -756,7 +867,8 @@
                         vy: Math.sin(angle) * existing.speed,
                         speed: existing.speed,
                         fireball: existing.fireball,
-                        stuck: false
+                        stuck: false,
+                        trail: []
                     });
                 }
             }
@@ -817,6 +929,7 @@
             var p = particles[i];
             p.x += p.vx * dt;
             p.y += p.vy * dt;
+            p.vy += PARTICLE_GRAVITY * dt; // gravity
             p.life -= dt;
             if (p.life <= 0) particles.splice(i, 1);
         }
@@ -862,18 +975,51 @@
         GameShell.showScreen('gameover-screen');
     }
 
+    // ─── Helper: parse hex color to RGB ───
+    function hexToRgb(hex) {
+        hex = hex.replace('#', '');
+        if (hex.length === 3) {
+            hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+        }
+        var r = parseInt(hex.substring(0, 2), 16);
+        var g = parseInt(hex.substring(2, 4), 16);
+        var b = parseInt(hex.substring(4, 6), 16);
+        return { r: r, g: g, b: b };
+    }
+
+    function lightenColor(hex, amount) {
+        var rgb = hexToRgb(hex);
+        var r = Math.min(255, rgb.r + amount);
+        var g = Math.min(255, rgb.g + amount);
+        var b = Math.min(255, rgb.b + amount);
+        return 'rgb(' + r + ',' + g + ',' + b + ')';
+    }
+
+    function darkenColor(hex, amount) {
+        var rgb = hexToRgb(hex);
+        var r = Math.max(0, rgb.r - amount);
+        var g = Math.max(0, rgb.g - amount);
+        var b = Math.max(0, rgb.b - amount);
+        return 'rgb(' + r + ',' + g + ',' + b + ')';
+    }
+
     // ─── Rendering ───
     function render() {
-        // Background
-        var style = getComputedStyle(document.documentElement);
-        var bgColor = style.getPropertyValue('--canvas-bg').trim() || '#0d0d1a';
-        ctx.fillStyle = bgColor;
-        ctx.fillRect(0, 0, W, H);
+        ctx.save();
+
+        // Apply screen shake offset
+        if (screenShake.intensity > 0) {
+            ctx.translate(screenShake.x, screenShake.y);
+        }
+
+        // Background with radial gradient and grid
+        renderBackground();
 
         if (mode === 1) {
             renderField(sp, 0, W);
         } else {
             // Draw divider
+            var style = getComputedStyle(document.documentElement);
             ctx.save();
             ctx.strokeStyle = style.getPropertyValue('--border-color').trim() || 'rgba(255,255,255,0.1)';
             ctx.lineWidth = 2;
@@ -916,6 +1062,9 @@
         // Particles (global coords)
         renderParticles();
 
+        // Sparkle particles (global coords)
+        renderSparkles();
+
         // Launch hint
         if (mode === 1 && !sp.launched) {
             renderLaunchHint(W / 2, sp.paddle.y - 40);
@@ -927,6 +1076,40 @@
                 }
             }
         }
+
+        ctx.restore(); // restore screen shake translate
+    }
+
+    // ─── Background Rendering ───
+    function renderBackground() {
+        var style = getComputedStyle(document.documentElement);
+        var bgColor = style.getPropertyValue('--canvas-bg').trim() || '#0d0d1a';
+
+        // Radial gradient background
+        var grad = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.7);
+        var bgRgb = hexToRgb(bgColor);
+        var centerColor = 'rgb(' + Math.min(255, bgRgb.r + 18) + ',' + Math.min(255, bgRgb.g + 18) + ',' + Math.min(255, bgRgb.b + 25) + ')';
+        grad.addColorStop(0, centerColor);
+        grad.addColorStop(1, bgColor);
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, H);
+
+        // Subtle grid pattern
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255,255,255,0.025)';
+        ctx.lineWidth = 1;
+        var gridSize = 40;
+        ctx.beginPath();
+        for (var gx = 0; gx <= W; gx += gridSize) {
+            ctx.moveTo(gx, 0);
+            ctx.lineTo(gx, H);
+        }
+        for (var gy = 0; gy <= H; gy += gridSize) {
+            ctx.moveTo(0, gy);
+            ctx.lineTo(W, gy);
+        }
+        ctx.stroke();
+        ctx.restore();
     }
 
     function renderField(state, fieldX, fieldW) {
@@ -945,7 +1128,7 @@
             var brick = state.bricks[i];
             if (!brick.alive) continue;
             var colors = ROW_COLORS[brick.row % ROW_COLORS.length];
-            drawBrick(brick.x, brick.y, brick.w, brick.h, colors);
+            drawBrick(brick.x, brick.y, brick.w, brick.h, colors, brick);
         }
 
         // Powerups
@@ -955,7 +1138,9 @@
         }
 
         // Paddle
-        drawPaddle(state.paddle, pColor);
+        var flashKey = mode === 1 ? 'sp' : String(state.player);
+        var flashAmount = paddleFlashTimers[flashKey] || 0;
+        drawPaddle(state.paddle, pColor, flashAmount);
 
         // Balls
         for (var k = 0; k < state.balls.length; k++) {
@@ -966,36 +1151,77 @@
         drawPowerupIndicators(state, fieldW);
     }
 
-    function drawBrick(x, y, w, h, colors) {
-        // Main fill
-        ctx.fillStyle = colors.fill;
-        ctx.fillRect(x, y, w, h);
+    function drawBrick(x, y, w, h, colors, brick) {
+        var r = BRICK_CORNER_RADIUS;
 
-        // Top bevel
-        ctx.fillStyle = colors.top;
-        ctx.fillRect(x, y, w, 3);
+        ctx.save();
 
-        // Bottom bevel
-        ctx.fillStyle = colors.bot;
-        ctx.fillRect(x, y + h - 3, w, 3);
+        // Glossy gradient fill (lighter at top, darker at bottom)
+        var grad = ctx.createLinearGradient(x, y, x, y + h);
+        grad.addColorStop(0, lightenColor(colors.fill, 40));
+        grad.addColorStop(0.4, colors.fill);
+        grad.addColorStop(1, darkenColor(colors.fill, 40));
 
-        // Left highlight
-        ctx.fillStyle = colors.top;
-        ctx.fillRect(x, y, 2, h);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, r);
+        ctx.fill();
 
-        // Right shadow
-        ctx.fillStyle = colors.bot;
-        ctx.fillRect(x + w - 2, y, 2, h);
+        // Top highlight stripe (glossy effect)
+        ctx.fillStyle = 'rgba(255,255,255,0.25)';
+        ctx.beginPath();
+        ctx.roundRect(x + 2, y + 1, w - 4, h * 0.3, [r - 1, r - 1, 0, 0]);
+        ctx.fill();
+
+        // Subtle border
+        ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, r);
+        ctx.stroke();
+
+        // Crack lines when hit but not broken (hits > 0 but still alive)
+        if (brick && brick.hits > 0) {
+            ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+            ctx.lineWidth = 1.5;
+            var cx = x + w * 0.5;
+            var cy = y + h * 0.5;
+            ctx.beginPath();
+            ctx.moveTo(cx - w * 0.2, cy - h * 0.3);
+            ctx.lineTo(cx, cy);
+            ctx.lineTo(cx + w * 0.15, cy + h * 0.35);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.lineTo(cx + w * 0.25, cy - h * 0.2);
+            ctx.stroke();
+        }
+
+        ctx.restore();
     }
 
-    function drawPaddle(paddle, color) {
+    function drawPaddle(paddle, color, flashAmount) {
         var x = paddle.x;
         var y = paddle.y;
         var w = paddle.w;
         var h = paddle.h;
 
-        // Paddle body
-        ctx.fillStyle = color;
+        ctx.save();
+
+        // Glow aura underneath the paddle
+        var glowGrad = ctx.createRadialGradient(x + w / 2, y + h, 0, x + w / 2, y + h, w * 0.5);
+        var colorRgb = hexToRgb(color);
+        glowGrad.addColorStop(0, 'rgba(' + colorRgb.r + ',' + colorRgb.g + ',' + colorRgb.b + ',0.25)');
+        glowGrad.addColorStop(1, 'rgba(' + colorRgb.r + ',' + colorRgb.g + ',' + colorRgb.b + ',0)');
+        ctx.fillStyle = glowGrad;
+        ctx.fillRect(x - w * 0.15, y, w * 1.3, h * 2.5);
+
+        // Paddle body with linear gradient
+        var bodyGrad = ctx.createLinearGradient(x, y, x, y + h);
+        bodyGrad.addColorStop(0, lightenColor(color, 50));
+        bodyGrad.addColorStop(0.5, color);
+        bodyGrad.addColorStop(1, darkenColor(color, 40));
+        ctx.fillStyle = bodyGrad;
         ctx.beginPath();
         ctx.roundRect(x, y, w, h, 6);
         ctx.fill();
@@ -1005,31 +1231,79 @@
         ctx.beginPath();
         ctx.roundRect(x + 3, y + 2, w - 6, h / 2 - 1, 4);
         ctx.fill();
+
+        // Hit flash overlay (white flash that fades)
+        if (flashAmount > 0) {
+            var flashAlpha = flashAmount / PADDLE_FLASH_DURATION;
+            ctx.fillStyle = 'rgba(255,255,255,' + (flashAlpha * 0.6) + ')';
+            ctx.beginPath();
+            ctx.roundRect(x, y, w, h, 6);
+            ctx.fill();
+        }
+
+        ctx.restore();
     }
 
     function drawBall(ball) {
         ctx.save();
 
-        // Glow
-        if (ball.fireball) {
-            ctx.shadowColor = '#ff4400';
-            ctx.shadowBlur = 15;
-        } else {
-            ctx.shadowColor = '#ffffff';
-            ctx.shadowBlur = 8;
+        // Draw trail (stored positions with decreasing alpha and size)
+        if (ball.trail && ball.trail.length > 0) {
+            for (var t = 0; t < ball.trail.length; t++) {
+                var trailAlpha = (t + 1) / (ball.trail.length + 1) * 0.35;
+                var trailSize = BALL_RADIUS * ((t + 1) / (ball.trail.length + 1)) * 0.8;
+                ctx.globalAlpha = trailAlpha;
+                if (ball.fireball) {
+                    ctx.fillStyle = '#ff6622';
+                } else {
+                    ctx.fillStyle = '#aaccff';
+                }
+                ctx.beginPath();
+                ctx.arc(ball.trail[t].x, ball.trail[t].y, trailSize, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
         }
 
-        // Ball
-        ctx.fillStyle = ball.fireball ? '#ff6622' : '#ffffff';
+        // Speed-based glow: increases with speed
+        var speedRatio = Math.min(ball.speed / MAX_BALL_SPEED, 1);
+        var baseGlow = 6;
+        var maxExtraGlow = 18;
+        var glowAmount = baseGlow + speedRatio * maxExtraGlow;
+
+        if (ball.fireball) {
+            ctx.shadowColor = '#ff4400';
+            ctx.shadowBlur = glowAmount + 6;
+        } else {
+            ctx.shadowColor = '#88bbff';
+            ctx.shadowBlur = glowAmount;
+        }
+
+        // Ball with radial gradient (white center to accent edge)
+        var ballGrad = ctx.createRadialGradient(
+            ball.x - BALL_RADIUS * 0.3, ball.y - BALL_RADIUS * 0.3, BALL_RADIUS * 0.1,
+            ball.x, ball.y, BALL_RADIUS
+        );
+        if (ball.fireball) {
+            ballGrad.addColorStop(0, '#ffffaa');
+            ballGrad.addColorStop(0.4, '#ff8833');
+            ballGrad.addColorStop(1, '#cc3300');
+        } else {
+            ballGrad.addColorStop(0, '#ffffff');
+            ballGrad.addColorStop(0.5, '#ddeeff');
+            ballGrad.addColorStop(1, '#6699cc');
+        }
+
+        ctx.fillStyle = ballGrad;
         ctx.beginPath();
         ctx.arc(ball.x, ball.y, BALL_RADIUS, 0, Math.PI * 2);
         ctx.fill();
 
-        // Inner highlight
+        // Inner highlight (no shadow)
         ctx.shadowBlur = 0;
-        ctx.fillStyle = ball.fireball ? '#ffaa44' : 'rgba(255,255,255,0.6)';
+        ctx.fillStyle = ball.fireball ? 'rgba(255,255,200,0.7)' : 'rgba(255,255,255,0.7)';
         ctx.beginPath();
-        ctx.arc(ball.x - 2, ball.y - 2, BALL_RADIUS * 0.4, 0, Math.PI * 2);
+        ctx.arc(ball.x - 2, ball.y - 2, BALL_RADIUS * 0.35, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.restore();
@@ -1037,14 +1311,28 @@
 
     function drawPowerup(x, y, type) {
         var color = POWERUP_COLORS[type];
+        var now = performance.now();
 
-        ctx.fillStyle = color;
+        ctx.save();
+
+        // Pulsing glow effect
+        var pulse = 0.6 + Math.sin(now / 200) * 0.4; // 0.2 to 1.0
+        var colorRgb = hexToRgb(color);
+        ctx.shadowColor = 'rgba(' + colorRgb.r + ',' + colorRgb.g + ',' + colorRgb.b + ',' + pulse + ')';
+        ctx.shadowBlur = 8 + pulse * 8;
+
+        // Gradient fill for powerup box
+        var puGrad = ctx.createLinearGradient(x, y, x, y + POWERUP_SIZE);
+        puGrad.addColorStop(0, lightenColor(color, 40));
+        puGrad.addColorStop(1, darkenColor(color, 30));
+        ctx.fillStyle = puGrad;
         ctx.beginPath();
         ctx.roundRect(x, y, POWERUP_SIZE, POWERUP_SIZE, 4);
         ctx.fill();
 
-        // Border
-        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        // Border with glow influence
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(255,255,255,' + (0.4 + pulse * 0.3) + ')';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.roundRect(x, y, POWERUP_SIZE, POWERUP_SIZE, 4);
@@ -1056,6 +1344,8 @@
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(type, x + POWERUP_SIZE / 2, y + POWERUP_SIZE / 2);
+
+        ctx.restore();
     }
 
     function drawPowerupIndicators(state, fieldW) {
@@ -1082,9 +1372,48 @@
         for (var i = 0; i < particles.length; i++) {
             var p = particles[i];
             var alpha = p.life / p.maxLife;
+            var shrink = alpha; // particles shrink as they die
             ctx.globalAlpha = alpha;
             ctx.fillStyle = p.color;
-            ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+
+            // Draw as small rounded rects for variety
+            ctx.beginPath();
+            var sz = p.size * shrink;
+            ctx.arc(p.x, p.y, sz, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    function renderSparkles() {
+        for (var i = 0; i < sparkleParticles.length; i++) {
+            var s = sparkleParticles[i];
+            var alpha = s.life / s.maxLife;
+            ctx.globalAlpha = alpha * 0.8;
+            ctx.fillStyle = '#ffffff';
+
+            // Draw as a small diamond/star shape
+            var sz = s.size * alpha;
+            ctx.save();
+            ctx.translate(s.x, s.y);
+            ctx.rotate(performance.now() / 300 + i); // slow spin
+            ctx.beginPath();
+            ctx.moveTo(0, -sz);
+            ctx.lineTo(sz * 0.3, 0);
+            ctx.lineTo(0, sz);
+            ctx.lineTo(-sz * 0.3, 0);
+            ctx.closePath();
+            ctx.fill();
+
+            // Cross sparkle
+            ctx.beginPath();
+            ctx.moveTo(-sz, 0);
+            ctx.lineTo(0, sz * 0.3);
+            ctx.lineTo(sz, 0);
+            ctx.lineTo(0, -sz * 0.3);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
         }
         ctx.globalAlpha = 1;
     }
@@ -1106,6 +1435,9 @@
     if (!CanvasRenderingContext2D.prototype.roundRect) {
         CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
             if (typeof r === 'number') r = [r, r, r, r];
+            if (Array.isArray(r) && r.length < 4) {
+                while (r.length < 4) r.push(r[0] || 0);
+            }
             var tl = r[0] || 0, tr = r[1] || r[0] || 0, br = r[2] || r[0] || 0, bl = r[3] || r[1] || r[0] || 0;
             this.moveTo(x + tl, y);
             this.lineTo(x + w - tr, y);

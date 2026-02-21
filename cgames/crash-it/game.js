@@ -23,8 +23,8 @@
     var ROAD_MIN_WIDTH = 90;
     var CAR_SPEED = 210;
     var STEER_SPEED = 200;
-    var CAR_W = 20;
-    var CAR_H = 36;
+    var CAR_W = 24;   // ~20% bigger (was 20)
+    var CAR_H = 43;   // ~20% bigger (was 36)
     var ROAD_VISIBLE_AHEAD = 600;
     var ROAD_CURVE_STRENGTH = 0.004;
     var NARROW_RATE = 0.012;
@@ -32,6 +32,20 @@
     var BUMP_FORCE = 280;
     var BUMP_COOLDOWN = 0.3;
     var SPEED_UP_RATE = 10;
+
+    // Boost pad constants
+    var BOOST_PAD_W = 30;
+    var BOOST_PAD_H = 50;
+    var BOOST_SPEED_MULT = 1.3;
+    var BOOST_DURATION = 1.0;
+    var BOOST_SPAWN_INTERVAL = 300; // road distance between possible spawns
+
+    // Oil slick constants
+    var OIL_RADIUS = 18;
+    var OIL_SLOW_MULT = 0.6;
+    var OIL_SLIDE_FORCE = 180;
+    var OIL_DURATION = 0.7;
+    var OIL_SPAWN_INTERVAL = 400;
 
     // ── State ──
     var mode = 0;
@@ -56,6 +70,18 @@
     // Particles
     var particles = [];
 
+    // Smoke particles (exhaust trails)
+    var smokeParticles = [];
+
+    // Hazards
+    var boostPads = [];
+    var oilSlicks = [];
+    var nextBoostSpawn = 200;
+    var nextOilSpawn = 350;
+
+    // Asphalt noise texture (pre-generated)
+    var asphaltPattern = null;
+
     // Input
     var keys = {};
     var touchState = { p1: 0, p2: 0 };
@@ -71,6 +97,26 @@
 
     // ── Init ──
     GameShell.init({ backUrl: '../' });
+
+    // ── Pre-generate asphalt noise texture ──
+    function generateAsphaltPattern() {
+        var patCanvas = document.createElement('canvas');
+        patCanvas.width = 64;
+        patCanvas.height = 64;
+        var patCtx = patCanvas.getContext('2d');
+        patCtx.fillStyle = 'rgba(0,0,0,0)';
+        patCtx.fillRect(0, 0, 64, 64);
+        for (var i = 0; i < 120; i++) {
+            var px = Math.random() * 64;
+            var py = Math.random() * 64;
+            var bright = Math.random() * 0.15;
+            patCtx.fillStyle = Math.random() < 0.5
+                ? 'rgba(255,255,255,' + bright + ')'
+                : 'rgba(0,0,0,' + (bright + 0.05) + ')';
+            patCtx.fillRect(px, py, 1, 1);
+        }
+        asphaltPattern = ctx.createPattern(patCanvas, 'repeat');
+    }
 
     // ── Button handlers ──
     document.getElementById('btn-1p').addEventListener('click', function () {
@@ -144,6 +190,7 @@
         var rect = container.getBoundingClientRect();
         canvas.width = Math.floor(rect.width);
         canvas.height = Math.floor(rect.height);
+        generateAsphaltPattern();
     }
     window.addEventListener('resize', resizeCanvas);
 
@@ -156,6 +203,10 @@
         roadCurveTimer = 0;
         roadHalfWidth = ROAD_BASE_WIDTH;
         cameraY = 0;
+        boostPads = [];
+        oilSlicks = [];
+        nextBoostSpawn = 200;
+        nextOilSpawn = 350;
 
         var cx = canvas.width / 2;
         for (var i = 0; i < 400; i++) {
@@ -188,12 +239,46 @@
             if (lastX > canvas.width - margin) { lastX = canvas.width - margin; roadCurve = -Math.abs(roadCurve); }
 
             road.push({ x: lastX, y: lastY, hw: roadHalfWidth });
+
+            // Spawn boost pads
+            if (roadDistance >= nextBoostSpawn) {
+                if (Math.random() < 0.45) {
+                    var laneOff = (Math.random() - 0.5) * roadHalfWidth * 1.0;
+                    boostPads.push({
+                        x: lastX + laneOff,
+                        y: lastY,
+                        hw: roadHalfWidth,
+                        pulse: Math.random() * Math.PI * 2
+                    });
+                }
+                nextBoostSpawn = roadDistance + BOOST_SPAWN_INTERVAL + Math.random() * 200;
+            }
+
+            // Spawn oil slicks
+            if (roadDistance >= nextOilSpawn) {
+                if (Math.random() < 0.35) {
+                    var oilLaneOff = (Math.random() - 0.5) * roadHalfWidth * 0.8;
+                    oilSlicks.push({
+                        x: lastX + oilLaneOff,
+                        y: lastY,
+                        phase: Math.random() * Math.PI * 2
+                    });
+                }
+                nextOilSpawn = roadDistance + OIL_SPAWN_INTERVAL + Math.random() * 250;
+            }
         }
     }
 
     function pruneRoad(bottomY) {
         while (road.length > 2 && road[0].y > bottomY + 200) {
             road.shift();
+        }
+        // Prune off-screen hazards
+        for (var bi = boostPads.length - 1; bi >= 0; bi--) {
+            if (boostPads[bi].y > bottomY + 200) boostPads.splice(bi, 1);
+        }
+        for (var oi = oilSlicks.length - 1; oi >= 0; oi--) {
+            if (oilSlicks[oi].y > bottomY + 200) oilSlicks.splice(oi, 1);
         }
     }
 
@@ -238,7 +323,13 @@
             angle: 0,
             tireMarks: [],
             spinTimer: 0,
-            spinDir: 0
+            spinDir: 0,
+            // New visual/gameplay properties
+            hits: 0,
+            flashTimer: 0,
+            boostTimer: 0,
+            oilTimer: 0,
+            oilSlideDir: 0
         };
     }
 
@@ -276,6 +367,42 @@
         }
     }
 
+    // Enhanced collision: debris chunks
+    function spawnDebris(x, y, count) {
+        var debrisColors = ['#555', '#777', '#999', '#444', '#888'];
+        for (var i = 0; i < count; i++) {
+            var angle = Math.random() * Math.PI * 2;
+            var speed = 80 + Math.random() * 180;
+            particles.push({
+                x: x, y: y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                life: 0.5 + Math.random() * 0.6,
+                maxLife: 0.5 + Math.random() * 0.6,
+                r: 3 + Math.random() * 5,
+                color: debrisColors[Math.floor(Math.random() * debrisColors.length)],
+                isDebris: true,
+                rotation: Math.random() * Math.PI * 2,
+                rotSpeed: (Math.random() - 0.5) * 10
+            });
+        }
+    }
+
+    // Smoke particle spawning (exhaust trails)
+    function spawnSmoke(x, y, intensity) {
+        if (Math.random() > intensity) return;
+        smokeParticles.push({
+            x: x + (Math.random() - 0.5) * 4,
+            y: y,
+            vx: (Math.random() - 0.5) * 15,
+            vy: (Math.random() - 0.5) * 10,
+            life: 0.4 + Math.random() * 0.4,
+            maxLife: 0.4 + Math.random() * 0.4,
+            r: 2 + Math.random() * 3,
+            alpha: 0.25 + Math.random() * 0.15
+        });
+    }
+
     function updateParticles(dt) {
         for (var i = particles.length - 1; i >= 0; i--) {
             var p = particles[i];
@@ -283,9 +410,23 @@
             p.y += p.vy * dt;
             p.vx *= 0.94;
             p.vy *= 0.94;
+            if (p.isDebris) {
+                p.vy += 120 * dt; // gravity for debris
+                p.rotation += p.rotSpeed * dt;
+            }
             p.life -= dt;
             if (p.life <= 0) particles.splice(i, 1);
         }
+        // Update smoke
+        for (var si = smokeParticles.length - 1; si >= 0; si--) {
+            var sp = smokeParticles[si];
+            sp.x += sp.vx * dt;
+            sp.y += sp.vy * dt;
+            sp.r += 4 * dt; // expand
+            sp.life -= dt;
+            if (sp.life <= 0) smokeParticles.splice(si, 1);
+        }
+        if (smokeParticles.length > 300) smokeParticles.splice(0, smokeParticles.length - 300);
     }
 
     function drawParticles(offsetY) {
@@ -293,9 +434,32 @@
             var p = particles[i];
             var alpha = Math.max(0, p.life / p.maxLife);
             ctx.globalAlpha = alpha;
+            if (p.isDebris) {
+                ctx.save();
+                ctx.translate(p.x, p.y + offsetY);
+                ctx.rotate(p.rotation);
+                ctx.fillStyle = p.color;
+                ctx.fillRect(-p.r / 2, -p.r / 2, p.r, p.r);
+                ctx.restore();
+            } else {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y + offsetY, p.r, 0, Math.PI * 2);
+                ctx.fillStyle = p.color;
+                ctx.fill();
+            }
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    function drawSmoke(offsetY) {
+        for (var i = 0; i < smokeParticles.length; i++) {
+            var sp = smokeParticles[i];
+            var lifeRatio = sp.life / sp.maxLife;
+            var alpha = sp.alpha * lifeRatio;
+            ctx.globalAlpha = alpha;
             ctx.beginPath();
-            ctx.arc(p.x, p.y + offsetY, p.r, 0, Math.PI * 2);
-            ctx.fillStyle = p.color;
+            ctx.arc(sp.x, sp.y + offsetY, sp.r, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(200,200,210,0.6)';
             ctx.fill();
         }
         ctx.globalAlpha = 1;
@@ -379,13 +543,24 @@
             p1.bumpCooldown = BUMP_COOLDOWN;
             p2.bumpCooldown = BUMP_COOLDOWN;
 
-            // Sparks at collision point
+            // Track hits for damage indicator
+            p1.hits++;
+            p2.hits++;
+            p1.flashTimer = 0.15;
+            p2.flashTimer = 0.15;
+
+            // Enhanced sparks & debris at collision point
             var cx = (p1.x + p2.x) / 2;
             var cy = (p1.worldY + p2.worldY) / 2;
-            spawnSparks(cx, cy, 15);
+            var impactSpeed = Math.abs(p1.vx) + Math.abs(p2.vx);
+            var sparkCount = Math.min(35, 15 + Math.floor(impactSpeed / 30));
+            spawnSparks(cx, cy, sparkCount);
+            spawnDebris(cx, cy, 6);
 
             CGameAudio.play('hit');
-            triggerShake(6, 0.25);
+            // Screen shake proportional to impact speed
+            var shakeStr = Math.min(14, 6 + impactSpeed / 50);
+            triggerShake(shakeStr, 0.3);
         }
     }
 
@@ -404,6 +579,7 @@
                 player.alive = false;
                 spawnParticles(player.x, player.worldY, getPlayerColor(p), 25);
                 spawnSparks(player.x, player.worldY, 12);
+                spawnDebris(player.x, player.worldY, 8);
                 CGameAudio.play('lose');
                 triggerShake(7, 0.35);
 
@@ -418,6 +594,44 @@
                 edgeBounceCD[p] = 0.4;
             }
             if (edgeBounceCD[p] > 0) edgeBounceCD[p] -= 1 / 60;
+        }
+    }
+
+    // ── Hazard collision checks ──
+    function checkHazards() {
+        for (var p = 0; p < players.length; p++) {
+            var player = players[p];
+            if (!player.alive) continue;
+
+            // Boost pads
+            for (var bi = 0; bi < boostPads.length; bi++) {
+                var bp = boostPads[bi];
+                var bdx = Math.abs(player.x - bp.x);
+                var bdy = Math.abs(player.worldY - bp.y);
+                if (bdx < (CAR_W / 2 + BOOST_PAD_W / 2) && bdy < (CAR_H / 2 + BOOST_PAD_H / 2)) {
+                    if (player.boostTimer <= 0) {
+                        player.boostTimer = BOOST_DURATION;
+                        // Visual feedback: yellow sparks
+                        spawnParticles(player.x, player.worldY, '#ffdd00', 8);
+                    }
+                }
+            }
+
+            // Oil slicks
+            for (var oi = 0; oi < oilSlicks.length; oi++) {
+                var oil = oilSlicks[oi];
+                var odx = player.x - oil.x;
+                var ody = player.worldY - oil.y;
+                var odist = Math.sqrt(odx * odx + ody * ody);
+                if (odist < (CAR_W / 2 + OIL_RADIUS)) {
+                    if (player.oilTimer <= 0) {
+                        player.oilTimer = OIL_DURATION;
+                        player.oilSlideDir = (Math.random() < 0.5 ? -1 : 1);
+                        // Spawn dark particles
+                        spawnParticles(player.x, player.worldY, '#333', 6);
+                    }
+                }
+            }
         }
     }
 
@@ -454,6 +668,7 @@
         roundTimer = 0;
         paused = false;
         particles = [];
+        smokeParticles = [];
 
         pauseOverlay.classList.add('hidden');
         roundOverlay.classList.add('hidden');
@@ -540,7 +755,7 @@
         updateParticles(dt);
         drawFrame();
 
-        if (particles.length > 0) {
+        if (particles.length > 0 || smokeParticles.length > 0) {
             requestAnimationFrame(animatePostRound);
         }
     }
@@ -604,6 +819,19 @@
             // Speed up over time
             player.speed = CAR_SPEED + roundTimer * SPEED_UP_RATE;
 
+            // Apply boost
+            if (player.boostTimer > 0) {
+                player.boostTimer -= dt;
+                player.speed *= BOOST_SPEED_MULT;
+            }
+
+            // Apply oil slick effect
+            if (player.oilTimer > 0) {
+                player.oilTimer -= dt;
+                player.speed *= OIL_SLOW_MULT;
+                player.x += player.oilSlideDir * OIL_SLIDE_FORCE * dt;
+            }
+
             // Move forward
             player.worldY -= player.speed * steerPenalty * dt;
             player.y = player.worldY;
@@ -618,6 +846,9 @@
             // Bump cooldown
             if (player.bumpCooldown > 0) player.bumpCooldown -= dt;
 
+            // Flash timer
+            if (player.flashTimer > 0) player.flashTimer -= dt;
+
             // Spin effect (visual only)
             if (player.spinTimer > 0) {
                 player.spinTimer -= dt;
@@ -629,9 +860,15 @@
 
             // Tire marks when bumped hard
             if (Math.abs(player.vx) > 100) {
-                player.tireMarks.push({ x: player.x - 6, y: player.worldY + CAR_H / 2, alpha: 0.5 });
-                player.tireMarks.push({ x: player.x + 6, y: player.worldY + CAR_H / 2, alpha: 0.5 });
+                player.tireMarks.push({ x: player.x - 7, y: player.worldY + CAR_H / 2, alpha: 0.5 });
+                player.tireMarks.push({ x: player.x + 7, y: player.worldY + CAR_H / 2, alpha: 0.5 });
             }
+
+            // Exhaust smoke
+            var accel = Math.abs(player.steer) > 0.5 ? 0.7 : 0.35;
+            if (player.boostTimer > 0) accel = 1.0;
+            spawnSmoke(player.x - 3, player.worldY + CAR_H / 2 + 2, accel);
+            spawnSmoke(player.x + 3, player.worldY + CAR_H / 2 + 2, accel);
         }
 
         // Camera follows average position of alive players
@@ -658,6 +895,9 @@
         // Check road bounds
         checkRoadBounds();
         if (!roundActive) return;
+
+        // Check hazards (boost pads, oil slicks)
+        checkHazards();
 
         // Fade tire marks
         for (var p2 = 0; p2 < players.length; p2++) {
@@ -702,6 +942,9 @@
 
         drawRoad(offsetY, W, H);
         drawTireMarks(offsetY);
+        drawSmoke(offsetY);
+        drawBoostPads(offsetY);
+        drawOilSlicks(offsetY);
         drawCars(offsetY);
         drawParticles(offsetY);
         drawEdgeWarnings(offsetY);
@@ -717,10 +960,40 @@
         var roadColor = theme === 'dark' ? '#2a2a3e' : '#888899';
         var roadEdgeColor = theme === 'dark' ? '#444466' : '#666677';
         var roadLineColor = theme === 'dark' ? '#3a3a55' : '#aaaabb';
-        var grassColor = theme === 'dark' ? '#0a1a0a' : '#88bb66';
+        var grassColor1 = theme === 'dark' ? '#0a1a0a' : '#88bb66';
+        var grassColor2 = theme === 'dark' ? '#0d220d' : '#6da84f';
 
-        ctx.fillStyle = grassColor;
+        // Parallax grass background with gradient texture
+        var grassGrad = ctx.createLinearGradient(0, 0, W, 0);
+        grassGrad.addColorStop(0, grassColor2);
+        grassGrad.addColorStop(0.3, grassColor1);
+        grassGrad.addColorStop(0.7, grassColor1);
+        grassGrad.addColorStop(1, grassColor2);
+        ctx.fillStyle = grassGrad;
         ctx.fillRect(0, 0, W, H);
+
+        // Grass texture dots (parallax - move slower than road)
+        var grassParallax = offsetY * 0.6;
+        var grassSeed = 12345;
+        function seededRand() {
+            grassSeed = (grassSeed * 16807 + 0) % 2147483647;
+            return (grassSeed & 0xfffffff) / 0x10000000;
+        }
+        grassSeed = 12345;
+        ctx.globalAlpha = 0.15;
+        for (var gi = 0; gi < 80; gi++) {
+            var gx = seededRand() * W;
+            var gy = (seededRand() * (H + 200) - 100 + grassParallax) % (H + 200);
+            if (gy < -10) gy += H + 200;
+            var gr = 1 + seededRand() * 2;
+            ctx.fillStyle = seededRand() < 0.5
+                ? (theme === 'dark' ? '#1a3a1a' : '#5a9944')
+                : (theme === 'dark' ? '#0f2f0f' : '#77aa55');
+            ctx.beginPath();
+            ctx.arc(gx, gy, gr, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
 
         var leftPath = [];
         var rightPath = [];
@@ -734,7 +1007,7 @@
         }
 
         if (leftPath.length > 1) {
-            // Fill road
+            // Fill road surface
             ctx.beginPath();
             ctx.moveTo(leftPath[0].x, leftPath[0].y);
             for (var k = 1; k < leftPath.length; k++) {
@@ -746,6 +1019,57 @@
             ctx.closePath();
             ctx.fillStyle = roadColor;
             ctx.fill();
+
+            // Asphalt texture overlay
+            if (asphaltPattern) {
+                ctx.save();
+                ctx.clip(); // clip to road shape (path still active)
+                ctx.fillStyle = asphaltPattern;
+                ctx.globalAlpha = 0.3;
+                ctx.fillRect(0, 0, W, H);
+                ctx.globalAlpha = 1;
+                ctx.restore();
+            }
+
+            // Gradient grass borders (left side)
+            for (var lb = 0; lb < leftPath.length - 1; lb++) {
+                var lp1 = leftPath[lb];
+                var lp2 = leftPath[lb + 1];
+                var borderW = 12;
+                var borderGrad = ctx.createLinearGradient(lp1.x - borderW, 0, lp1.x, 0);
+                borderGrad.addColorStop(0, grassColor1);
+                borderGrad.addColorStop(1, roadEdgeColor);
+                ctx.fillStyle = borderGrad;
+                ctx.globalAlpha = 0.5;
+                ctx.beginPath();
+                ctx.moveTo(lp1.x - borderW, lp1.y);
+                ctx.lineTo(lp1.x, lp1.y);
+                ctx.lineTo(lp2.x, lp2.y);
+                ctx.lineTo(lp2.x - borderW, lp2.y);
+                ctx.closePath();
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+
+            // Gradient grass borders (right side)
+            for (var rb = 0; rb < rightPath.length - 1; rb++) {
+                var rp1 = rightPath[rb];
+                var rp2 = rightPath[rb + 1];
+                var borderWR = 12;
+                var borderGradR = ctx.createLinearGradient(rp1.x, 0, rp1.x + borderWR, 0);
+                borderGradR.addColorStop(0, roadEdgeColor);
+                borderGradR.addColorStop(1, grassColor1);
+                ctx.fillStyle = borderGradR;
+                ctx.globalAlpha = 0.5;
+                ctx.beginPath();
+                ctx.moveTo(rp1.x, rp1.y);
+                ctx.lineTo(rp1.x + borderWR, rp1.y);
+                ctx.lineTo(rp2.x + borderWR, rp2.y);
+                ctx.lineTo(rp2.x, rp2.y);
+                ctx.closePath();
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
 
             // Road edges
             ctx.beginPath();
@@ -792,6 +1116,31 @@
             ctx.lineWidth = 2;
             ctx.stroke();
             ctx.setLineDash([]);
+
+            // Additional lane markings (quarter lines for wider roads)
+            ctx.beginPath();
+            ctx.setLineDash([8, 20]);
+            for (var ql = 0; ql < leftPath.length; ql++) {
+                var qx = leftPath[ql].x + (rightPath[ql].x - leftPath[ql].x) * 0.25;
+                var qy = leftPath[ql].y;
+                if (ql === 0) ctx.moveTo(qx, qy);
+                else ctx.lineTo(qx, qy);
+            }
+            ctx.strokeStyle = roadLineColor;
+            ctx.lineWidth = 1;
+            ctx.globalAlpha = 0.3;
+            ctx.stroke();
+
+            ctx.beginPath();
+            for (var ql2 = 0; ql2 < leftPath.length; ql2++) {
+                var qx2 = leftPath[ql2].x + (rightPath[ql2].x - leftPath[ql2].x) * 0.75;
+                var qy2 = leftPath[ql2].y;
+                if (ql2 === 0) ctx.moveTo(qx2, qy2);
+                else ctx.lineTo(qx2, qy2);
+            }
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1;
         }
     }
 
@@ -807,6 +1156,108 @@
                 ctx.fillStyle = 'rgba(' + markColor + ',' + m.alpha + ')';
                 ctx.fillRect(m.x - 1.5, sy - 2, 3, 4);
             }
+        }
+    }
+
+    // ── Draw boost pads ──
+    function drawBoostPads(offsetY) {
+        var H = canvas.height;
+        for (var i = 0; i < boostPads.length; i++) {
+            var bp = boostPads[i];
+            var sy = bp.y + offsetY;
+            if (sy < -80 || sy > H + 80) continue;
+
+            var px = bp.x;
+            var pw = BOOST_PAD_W;
+            var ph = BOOST_PAD_H;
+            var pulse = 0.7 + 0.3 * Math.sin(roundTimer * 5 + bp.pulse);
+
+            // Glow underneath
+            ctx.globalAlpha = 0.2 * pulse;
+            ctx.beginPath();
+            ctx.ellipse(px, sy, pw * 0.8, ph * 0.6, 0, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffaa00';
+            ctx.fill();
+            ctx.globalAlpha = 1;
+
+            // Pad body with gradient
+            ctx.save();
+            ctx.translate(px, sy);
+            var padGrad = ctx.createLinearGradient(0, -ph / 2, 0, ph / 2);
+            padGrad.addColorStop(0, '#ffcc00');
+            padGrad.addColorStop(0.5, '#ff8800');
+            padGrad.addColorStop(1, '#ff6600');
+            ctx.fillStyle = padGrad;
+            ctx.globalAlpha = 0.8 * pulse;
+            ctx.beginPath();
+            ctx.roundRect(-pw / 2, -ph / 2, pw, ph, 4);
+            ctx.fill();
+
+            // Border
+            ctx.strokeStyle = '#ffee66';
+            ctx.lineWidth = 1.5;
+            ctx.globalAlpha = 0.6 * pulse;
+            ctx.stroke();
+
+            // Arrow pattern (chevrons pointing up)
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 0.7 * pulse;
+            for (var a = 0; a < 3; a++) {
+                var ay = -ph / 2 + 10 + a * 14;
+                ctx.beginPath();
+                ctx.moveTo(-7, ay + 6);
+                ctx.lineTo(0, ay);
+                ctx.lineTo(7, ay + 6);
+                ctx.stroke();
+            }
+
+            ctx.restore();
+            ctx.globalAlpha = 1;
+        }
+    }
+
+    // ── Draw oil slicks ──
+    function drawOilSlicks(offsetY) {
+        var H = canvas.height;
+        for (var i = 0; i < oilSlicks.length; i++) {
+            var oil = oilSlicks[i];
+            var sy = oil.y + offsetY;
+            if (sy < -60 || sy > H + 60) continue;
+
+            var ox = oil.x;
+
+            // Dark base circle
+            ctx.globalAlpha = 0.45;
+            ctx.beginPath();
+            ctx.arc(ox, sy, OIL_RADIUS, 0, Math.PI * 2);
+            ctx.fillStyle = '#1a1a22';
+            ctx.fill();
+
+            // Rainbow sheen (radial gradient with low alpha)
+            var rainbowGrad = ctx.createRadialGradient(
+                ox - 3, sy - 3, 2,
+                ox, sy, OIL_RADIUS
+            );
+            var phase = roundTimer * 0.5 + oil.phase;
+            rainbowGrad.addColorStop(0, 'hsla(' + ((phase * 60) % 360) + ',80%,60%,0.35)');
+            rainbowGrad.addColorStop(0.3, 'hsla(' + ((phase * 60 + 60) % 360) + ',70%,55%,0.25)');
+            rainbowGrad.addColorStop(0.6, 'hsla(' + ((phase * 60 + 150) % 360) + ',75%,50%,0.2)');
+            rainbowGrad.addColorStop(1, 'hsla(' + ((phase * 60 + 240) % 360) + ',60%,45%,0.1)');
+            ctx.globalAlpha = 0.5;
+            ctx.beginPath();
+            ctx.arc(ox, sy, OIL_RADIUS, 0, Math.PI * 2);
+            ctx.fillStyle = rainbowGrad;
+            ctx.fill();
+
+            // Subtle highlight
+            ctx.globalAlpha = 0.15;
+            ctx.beginPath();
+            ctx.ellipse(ox - 4, sy - 4, OIL_RADIUS * 0.4, OIL_RADIUS * 0.3, -0.3, 0, Math.PI * 2);
+            ctx.fillStyle = '#fff';
+            ctx.fill();
+
+            ctx.globalAlpha = 1;
         }
     }
 
@@ -836,67 +1287,183 @@
         var hw = CAR_W / 2;
         var hh = CAR_H / 2;
 
-        // Car shadow
-        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        // Car shadow (offset and slightly larger)
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
         ctx.beginPath();
-        ctx.roundRect(-hw + 2, -hh + 3, CAR_W, CAR_H, 4);
+        ctx.roundRect(-hw + 2, -hh + 3, CAR_W + 1, CAR_H + 1, 5);
         ctx.fill();
 
-        // Car body
-        ctx.fillStyle = color;
+        // Car body with gradient paint job
+        var bodyGrad = ctx.createLinearGradient(-hw, 0, hw, 0);
+        bodyGrad.addColorStop(0, shadeColor(color, -25));
+        bodyGrad.addColorStop(0.3, color);
+        bodyGrad.addColorStop(0.5, shadeColor(color, 20));
+        bodyGrad.addColorStop(0.7, color);
+        bodyGrad.addColorStop(1, shadeColor(color, -25));
+        ctx.fillStyle = bodyGrad;
         ctx.beginPath();
-        ctx.roundRect(-hw, -hh, CAR_W, CAR_H, 4);
+        ctx.roundRect(-hw, -hh, CAR_W, CAR_H, 5);
         ctx.fill();
 
-        // Car body highlight (lighter center stripe)
-        ctx.fillStyle = lightColor;
+        // Hood section (lighter area at front)
+        var hoodGrad = ctx.createLinearGradient(0, -hh, 0, -hh + CAR_H * 0.35);
+        hoodGrad.addColorStop(0, lightColor);
+        hoodGrad.addColorStop(1, color);
+        ctx.fillStyle = hoodGrad;
         ctx.beginPath();
-        ctx.roundRect(-hw + 3, -hh + 2, CAR_W - 6, CAR_H - 4, 3);
+        ctx.roundRect(-hw + 2, -hh + 1, CAR_W - 4, CAR_H * 0.33, [4, 4, 1, 1]);
         ctx.fill();
 
-        // Windshield (front)
-        var wsColor = theme === 'dark' ? 'rgba(100,200,255,0.4)' : 'rgba(100,150,200,0.5)';
+        // Trunk section (slightly darker at rear)
+        ctx.fillStyle = shadeColor(color, -15);
+        ctx.beginPath();
+        ctx.roundRect(-hw + 2, hh - CAR_H * 0.25, CAR_W - 4, CAR_H * 0.23, [1, 1, 4, 4]);
+        ctx.fill();
+
+        // Windshield (front) with glass reflection
+        var wsColor = theme === 'dark' ? 'rgba(80,180,240,0.55)' : 'rgba(80,140,200,0.6)';
         ctx.fillStyle = wsColor;
         ctx.beginPath();
-        ctx.roundRect(-hw + 3, -hh + 3, CAR_W - 6, 8, [3, 3, 0, 0]);
+        ctx.roundRect(-hw + 3, -hh + 4, CAR_W - 6, 10, [3, 3, 1, 1]);
+        ctx.fill();
+        // Glass reflection stripe
+        var reflGrad = ctx.createLinearGradient(-hw + 3, -hh + 4, hw - 3, -hh + 14);
+        reflGrad.addColorStop(0, 'rgba(255,255,255,0.0)');
+        reflGrad.addColorStop(0.3, 'rgba(255,255,255,0.35)');
+        reflGrad.addColorStop(0.5, 'rgba(255,255,255,0.0)');
+        ctx.fillStyle = reflGrad;
+        ctx.beginPath();
+        ctx.roundRect(-hw + 3, -hh + 4, CAR_W - 6, 10, [3, 3, 1, 1]);
         ctx.fill();
 
         // Rear window
-        ctx.fillStyle = theme === 'dark' ? 'rgba(60,60,80,0.5)' : 'rgba(80,80,100,0.4)';
+        ctx.fillStyle = theme === 'dark' ? 'rgba(50,50,75,0.6)' : 'rgba(70,70,100,0.5)';
         ctx.beginPath();
-        ctx.roundRect(-hw + 4, hh - 10, CAR_W - 8, 6, [0, 0, 2, 2]);
+        ctx.roundRect(-hw + 4, hh - 13, CAR_W - 8, 7, [1, 1, 2, 2]);
         ctx.fill();
 
-        // Headlights (two small bright dots at front)
+        // Side mirrors (small protruding rectangles)
+        ctx.fillStyle = shadeColor(color, -10);
+        ctx.fillRect(-hw - 3, -hh + 8, 3, 4);
+        ctx.fillRect(hw, -hh + 8, 3, 4);
+
+        // Headlights (two bright areas at front)
         ctx.fillStyle = '#ffee88';
-        ctx.fillRect(-hw + 2, -hh, 4, 3);
-        ctx.fillRect(hw - 6, -hh, 4, 3);
+        ctx.beginPath();
+        ctx.roundRect(-hw + 1, -hh, 5, 3, 1);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.roundRect(hw - 6, -hh, 5, 3, 1);
+        ctx.fill();
+
+        // Headlight glow
+        ctx.globalAlpha = 0.15;
+        ctx.beginPath();
+        ctx.ellipse(-hw + 3, -hh - 3, 6, 4, 0, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffee88';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(hw - 3, -hh - 3, 6, 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = player.alive ? 1 : 0.3;
 
         // Taillights
         ctx.fillStyle = '#ff3333';
-        ctx.fillRect(-hw + 2, hh - 3, 4, 3);
-        ctx.fillRect(hw - 6, hh - 3, 4, 3);
+        ctx.beginPath();
+        ctx.roundRect(-hw + 1, hh - 3, 5, 3, 1);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.roundRect(hw - 6, hh - 3, 5, 3, 1);
+        ctx.fill();
 
-        // Wheels (4 small dark rectangles)
-        ctx.fillStyle = theme === 'dark' ? '#111' : '#333';
-        // Front-left
-        ctx.fillRect(-hw - 2, -hh + 4, 3, 8);
-        // Front-right
-        ctx.fillRect(hw - 1, -hh + 4, 3, 8);
-        // Rear-left
-        ctx.fillRect(-hw - 2, hh - 12, 3, 8);
-        // Rear-right
-        ctx.fillRect(hw - 1, hh - 12, 3, 8);
+        // Wheels with gradient rims
+        drawWheel(-hw - 3, -hh + 5, 4, 9, theme);  // Front-left
+        drawWheel(hw - 1, -hh + 5, 4, 9, theme);    // Front-right
+        drawWheel(-hw - 3, hh - 14, 4, 9, theme);    // Rear-left
+        drawWheel(hw - 1, hh - 14, 4, 9, theme);     // Rear-right
+
+        // Roof center line (subtle highlight)
+        ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, -hh + 16);
+        ctx.lineTo(0, hh - 16);
+        ctx.stroke();
 
         // Player number on roof
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 10px sans-serif';
+        ctx.font = 'bold 11px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.shadowBlur = 2;
         ctx.fillText('P' + (player.index + 1), 0, 2);
+        ctx.shadowBlur = 0;
+
+        // Boost glow effect
+        if (player.boostTimer > 0) {
+            ctx.globalAlpha = 0.3 * (player.boostTimer / BOOST_DURATION);
+            ctx.fillStyle = '#ffaa00';
+            ctx.beginPath();
+            ctx.roundRect(-hw - 2, -hh - 2, CAR_W + 4, CAR_H + 4, 6);
+            ctx.fill();
+            ctx.globalAlpha = player.alive ? 1 : 0.3;
+        }
+
+        // Damage red tint overlay (increases with hits)
+        if (player.hits > 0 && player.alive) {
+            var damageAlpha = Math.min(0.5, player.hits * 0.08);
+            ctx.globalAlpha = damageAlpha;
+            ctx.fillStyle = '#ff0000';
+            ctx.beginPath();
+            ctx.roundRect(-hw, -hh, CAR_W, CAR_H, 5);
+            ctx.fill();
+            ctx.globalAlpha = player.alive ? 1 : 0.3;
+        }
+
+        // White flash on hit
+        if (player.flashTimer > 0) {
+            ctx.globalAlpha = player.flashTimer / 0.15 * 0.6;
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.roundRect(-hw, -hh, CAR_W, CAR_H, 5);
+            ctx.fill();
+            ctx.globalAlpha = player.alive ? 1 : 0.3;
+        }
 
         ctx.restore();
         ctx.globalAlpha = 1;
+    }
+
+    // Helper: draw a wheel with gradient rim
+    function drawWheel(x, y, w, h, theme) {
+        // Tire
+        ctx.fillStyle = theme === 'dark' ? '#0a0a0a' : '#222';
+        ctx.fillRect(x, y, w, h);
+        // Rim gradient
+        var rimGrad = ctx.createLinearGradient(x, y + 1, x + w, y + 1);
+        rimGrad.addColorStop(0, '#666');
+        rimGrad.addColorStop(0.5, '#ccc');
+        rimGrad.addColorStop(1, '#666');
+        ctx.fillStyle = rimGrad;
+        ctx.fillRect(x + 0.5, y + 2, w - 1, h - 4);
+        // Hub
+        ctx.fillStyle = '#999';
+        ctx.beginPath();
+        ctx.arc(x + w / 2, y + h / 2, 1.2, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // Helper: shade a hex color lighter or darker
+    function shadeColor(hex, amount) {
+        hex = hex.replace('#', '');
+        if (hex.length === 3) {
+            hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+        }
+        var r = Math.max(0, Math.min(255, parseInt(hex.substring(0, 2), 16) + amount));
+        var g = Math.max(0, Math.min(255, parseInt(hex.substring(2, 4), 16) + amount));
+        var b = Math.max(0, Math.min(255, parseInt(hex.substring(4, 6), 16) + amount));
+        return '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
     }
 
     function drawEdgeWarnings(offsetY) {

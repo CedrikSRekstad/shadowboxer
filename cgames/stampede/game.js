@@ -56,6 +56,12 @@
     var spawnedUpTo = 0;         // how far (in scroll-space) we have spawned obstacles
     var coinSpawnedUpTo = 0;     // how far we have spawned coins
 
+    // ── Visual-only state ──
+    var scorePopups = [];        // {x, y, text, life, maxLife}
+    var jumpTrails = [];         // {x, y, life, maxLife, size}
+    var clouds = [];             // {x, y, w, h, speed}
+    var globalTime = 0;          // accumulated time for animations
+
     // Canvas dimensions
     var W = 800;
     var H = 450;
@@ -68,6 +74,20 @@
 
     function refreshColors() {
         style = getComputedStyle(document.documentElement);
+    }
+
+    // ── Cloud initialization ──
+    function initClouds() {
+        clouds = [];
+        for (var i = 0; i < 8; i++) {
+            clouds.push({
+                x: Math.random() * W * 1.5,
+                y: 20 + Math.random() * 80,
+                w: 60 + Math.random() * 100,
+                h: 20 + Math.random() * 20,
+                speed: 8 + Math.random() * 15
+            });
+        }
     }
 
     // ── Player class ──
@@ -133,16 +153,45 @@
         // Running animation phase
         this.legPhase += dt * 0.012 * (speed / BASE_SPEED);
 
-        // Dust particles when running on ground
-        if (!this.jumping && Math.random() < 0.3) {
-            particles.push({
-                x: this.x - 4,
-                y: this.baseY + this.h,
-                vx: -speed * 0.3 + (Math.random() - 0.5) * 30,
-                vy: -20 - Math.random() * 40,
+        // Dust particles when running on ground (enhanced: more particles, varied sizes)
+        if (!this.jumping) {
+            if (Math.random() < 0.5) {
+                particles.push({
+                    x: this.x - 4 + (Math.random() - 0.5) * 10,
+                    y: this.baseY + this.h - Math.random() * 3,
+                    vx: -speed * 0.3 + (Math.random() - 0.5) * 50,
+                    vy: -15 - Math.random() * 50,
+                    life: 400 + Math.random() * 300,
+                    maxLife: 700,
+                    size: 1.5 + Math.random() * 4,
+                    isDust: true
+                });
+            }
+            if (Math.random() < 0.25) {
+                particles.push({
+                    x: this.x + (Math.random() - 0.5) * 14,
+                    y: this.baseY + this.h - 1,
+                    vx: -speed * 0.15 + (Math.random() - 0.5) * 20,
+                    vy: -5 - Math.random() * 25,
+                    life: 200 + Math.random() * 200,
+                    maxLife: 400,
+                    size: 1 + Math.random() * 2,
+                    isDust: true
+                });
+            }
+        }
+
+        // Jump trail: leave small circles below when airborne
+        if (this.jumping && Math.random() < 0.4) {
+            var hb = this.getHitbox();
+            var pcol = this.idx === 0 ? '#4488ff' : '#ff4444';
+            jumpTrails.push({
+                x: hb.x + hb.w / 2 + (Math.random() - 0.5) * 8,
+                y: hb.y + hb.h + 2 + Math.random() * 6,
                 life: 300 + Math.random() * 200,
                 maxLife: 500,
-                size: 2 + Math.random() * 3
+                size: 2 + Math.random() * 3,
+                color: pcol
             });
         }
     };
@@ -160,31 +209,52 @@
 
     Player.prototype.draw = function (c) {
         if (!this.alive) return;
-        var color = this.idx === 0 ? cssVar('--p1-color') : cssVar('--p2-color');
-        var lightColor = this.idx === 0 ? cssVar('--p1-light') : cssVar('--p2-light');
+        var isP1 = this.idx === 0;
+        var color = isP1 ? cssVar('--p1-color') : cssVar('--p2-color');
+        var lightColor = isP1 ? cssVar('--p1-light') : cssVar('--p2-light');
         var hb = this.getHitbox();
         var cx = hb.x + hb.w / 2;
         var bottom = hb.y + hb.h;
 
         c.save();
 
+        // Body gradient colors
+        var bodyGradTop = isP1 ? '#6699ff' : '#ff6655';
+        var bodyGradBot = isP1 ? '#2255cc' : '#cc2222';
+        var skinColor = '#ffcc99';
+        var shoeColor = isP1 ? '#2244aa' : '#aa2222';
+
         if (this.ducking) {
             // Crouched figure
             var bodyY = bottom - hb.h;
-            // Head
-            c.fillStyle = color;
+
+            // Head with skin fill
+            c.fillStyle = skinColor;
             c.beginPath();
             c.arc(cx, bodyY + 6, 7, 0, Math.PI * 2);
             c.fill();
-            // Horizontal body
-            c.strokeStyle = color;
+            c.strokeStyle = isP1 ? '#4477dd' : '#dd4444';
+            c.lineWidth = 1.5;
+            c.stroke();
+
+            // Hat / hair detail
+            c.fillStyle = bodyGradTop;
+            c.beginPath();
+            c.arc(cx, bodyY + 3, 7, Math.PI, 0);
+            c.fill();
+
+            // Horizontal body with gradient fill
+            var torsoGrad = c.createLinearGradient(cx - 10, bodyY + 10, cx + 10, bodyY + 18);
+            torsoGrad.addColorStop(0, bodyGradTop);
+            torsoGrad.addColorStop(1, bodyGradBot);
+            c.fillStyle = torsoGrad;
+            roundRect(c, cx - 11, bodyY + 10, 22, 8, 3);
+            c.fill();
+
+            // Bent legs with fill
+            c.strokeStyle = bodyGradBot;
             c.lineWidth = 4;
             c.lineCap = 'round';
-            c.beginPath();
-            c.moveTo(cx - 10, bodyY + 14);
-            c.lineTo(cx + 10, bodyY + 14);
-            c.stroke();
-            // Bent legs
             c.beginPath();
             c.moveTo(cx + 10, bodyY + 14);
             c.lineTo(cx + 6, bottom);
@@ -193,52 +263,129 @@
             c.moveTo(cx - 10, bodyY + 14);
             c.lineTo(cx - 6, bottom);
             c.stroke();
+
+            // Shoes
+            c.fillStyle = shoeColor;
+            c.beginPath();
+            c.ellipse(cx + 6, bottom, 4, 2.5, 0, 0, Math.PI * 2);
+            c.fill();
+            c.beginPath();
+            c.ellipse(cx - 6, bottom, 4, 2.5, 0, 0, Math.PI * 2);
+            c.fill();
         } else {
             // Standing / running / jumping
             var bodyTop = hb.y;
-            // Head
-            c.fillStyle = color;
+
+            // Head with skin color
+            c.fillStyle = skinColor;
             c.beginPath();
             c.arc(cx, bodyTop + 8, 8, 0, Math.PI * 2);
             c.fill();
-            // Torso
-            c.strokeStyle = color;
+            c.strokeStyle = isP1 ? '#4477dd' : '#dd4444';
+            c.lineWidth = 1.5;
+            c.stroke();
+
+            // Hair / cap
+            c.fillStyle = bodyGradTop;
+            c.beginPath();
+            c.arc(cx, bodyTop + 5, 8, Math.PI, Math.PI * 0.05);
+            c.fill();
+
+            // Eye dots
+            c.fillStyle = '#333';
+            c.beginPath();
+            c.arc(cx - 3, bodyTop + 8, 1.2, 0, Math.PI * 2);
+            c.fill();
+            c.beginPath();
+            c.arc(cx + 3, bodyTop + 8, 1.2, 0, Math.PI * 2);
+            c.fill();
+
+            // Torso with gradient fill (rectangle body)
+            var torsoTop = bodyTop + 16;
+            var bodyMidY = bodyTop + 30;
+            var torsoGrad2 = c.createLinearGradient(cx, torsoTop, cx, bodyMidY);
+            torsoGrad2.addColorStop(0, bodyGradTop);
+            torsoGrad2.addColorStop(1, bodyGradBot);
+            c.fillStyle = torsoGrad2;
+            roundRect(c, cx - 7, torsoTop, 14, bodyMidY - torsoTop, 3);
+            c.fill();
+
+            // Belt line
+            c.strokeStyle = isP1 ? '#1a3388' : '#881111';
+            c.lineWidth = 1.5;
+            c.beginPath();
+            c.moveTo(cx - 6, bodyMidY - 2);
+            c.lineTo(cx + 6, bodyMidY - 2);
+            c.stroke();
+
+            // Arms with smoother swing and fill
+            var armSwing = this.jumping ? 0.4 : Math.sin(this.legPhase) * 0.5;
             c.lineWidth = 4;
             c.lineCap = 'round';
-            var bodyMidY = bodyTop + 30;
+
+            // Left arm
+            c.strokeStyle = skinColor;
             c.beginPath();
-            c.moveTo(cx, bodyTop + 16);
-            c.lineTo(cx, bodyMidY);
+            c.moveTo(cx - 7, torsoTop + 2);
+            c.lineTo(cx - 14, torsoTop + 10 + armSwing * 8);
             c.stroke();
-            // Arms
-            var armSwing = this.jumping ? 0.4 : Math.sin(this.legPhase) * 0.5;
+            // Sleeve
+            c.strokeStyle = bodyGradTop;
+            c.lineWidth = 5;
             c.beginPath();
-            c.moveTo(cx, bodyTop + 20);
-            c.lineTo(cx - 10, bodyTop + 26 + armSwing * 8);
+            c.moveTo(cx - 7, torsoTop + 2);
+            c.lineTo(cx - 10, torsoTop + 5 + armSwing * 3);
             c.stroke();
+
+            // Right arm
+            c.lineWidth = 4;
+            c.strokeStyle = skinColor;
             c.beginPath();
-            c.moveTo(cx, bodyTop + 20);
-            c.lineTo(cx + 10, bodyTop + 26 - armSwing * 8);
+            c.moveTo(cx + 7, torsoTop + 2);
+            c.lineTo(cx + 14, torsoTop + 10 - armSwing * 8);
             c.stroke();
-            // Legs
+            // Sleeve
+            c.strokeStyle = bodyGradTop;
+            c.lineWidth = 5;
+            c.beginPath();
+            c.moveTo(cx + 7, torsoTop + 2);
+            c.lineTo(cx + 10, torsoTop + 5 - armSwing * 3);
+            c.stroke();
+
+            // Legs with smoother swing
             var legSwing = this.jumping ? 0.3 : Math.sin(this.legPhase) * 0.6;
+            c.lineWidth = 5;
+            c.strokeStyle = isP1 ? '#334488' : '#883333';
+            // Left leg
             c.beginPath();
-            c.moveTo(cx, bodyMidY);
-            c.lineTo(cx - 8 + legSwing * 10, bottom);
+            c.moveTo(cx - 3, bodyMidY);
+            c.lineTo(cx - 8 + legSwing * 10, bottom - 3);
             c.stroke();
+            // Right leg
             c.beginPath();
-            c.moveTo(cx, bodyMidY);
-            c.lineTo(cx + 8 - legSwing * 10, bottom);
+            c.moveTo(cx + 3, bodyMidY);
+            c.lineTo(cx + 8 - legSwing * 10, bottom - 3);
             c.stroke();
+
+            // Shoes
+            c.fillStyle = shoeColor;
+            var leftFootX = cx - 8 + legSwing * 10;
+            var rightFootX = cx + 8 - legSwing * 10;
+            c.beginPath();
+            c.ellipse(leftFootX, bottom - 1, 5, 3, 0, 0, Math.PI * 2);
+            c.fill();
+            c.beginPath();
+            c.ellipse(rightFootX, bottom - 1, 5, 3, 0, 0, Math.PI * 2);
+            c.fill();
         }
 
         // Glow effect
         c.shadowColor = lightColor;
-        c.shadowBlur = 8;
+        c.shadowBlur = 10;
         c.fillStyle = lightColor;
-        c.globalAlpha = 0.3;
+        c.globalAlpha = 0.25;
         c.beginPath();
-        c.arc(cx, hb.y + hb.h / 2, 6, 0, Math.PI * 2);
+        c.arc(cx, hb.y + hb.h / 2, 8, 0, Math.PI * 2);
         c.fill();
         c.globalAlpha = 1;
 
@@ -277,7 +424,8 @@
             y: groundY - 50 - Math.random() * 40,
             size: COIN_SIZE,
             collected: false,
-            bobPhase: Math.random() * Math.PI * 2
+            bobPhase: Math.random() * Math.PI * 2,
+            spinPhase: Math.random() * Math.PI * 2
         };
     }
 
@@ -471,10 +619,14 @@
         spawnedUpTo = 0;
         coinSpawnedUpTo = 0;
         groundOffset = 0;
+        scorePopups = [];
+        jumpTrails = [];
+        globalTime = 0;
 
         refreshColors();
         resize();
         initBackground();
+        initClouds();
 
         players = [];
         for (var i = 0; i < playerCount; i++) {
@@ -533,6 +685,7 @@
     // ── Update ──
     function update(dt) {
         var anyAlive = false;
+        globalTime += dt;
 
         // Speed ramp based on max distance
         var maxDist = 0;
@@ -567,6 +720,7 @@
         for (var i = coins.length - 1; i >= 0; i--) {
             coins[i].x -= scrollDelta;
             coins[i].bobPhase += dt * 0.005;
+            coins[i].spinPhase += dt * 0.006;
             if (coins[i].x < -50) {
                 coins.splice(i, 1);
             }
@@ -616,6 +770,14 @@
                         coins[i].collected = true;
                         players[p].coinScore += COIN_POINTS;
                         CGameAudio.play('score');
+                        // Score popup
+                        scorePopups.push({
+                            x: coins[i].x,
+                            y: coins[i].y - 10,
+                            text: '+' + COIN_POINTS,
+                            life: 800,
+                            maxLife: 800
+                        });
                         // Sparkle
                         for (var k = 0; k < 6; k++) {
                             particles.push({
@@ -643,6 +805,34 @@
             pt.life -= dt;
             if (pt.life <= 0) {
                 particles.splice(i, 1);
+            }
+        }
+
+        // Score popups update
+        for (var i = scorePopups.length - 1; i >= 0; i--) {
+            scorePopups[i].y -= 40 * dt / 1000;
+            scorePopups[i].life -= dt;
+            if (scorePopups[i].life <= 0) {
+                scorePopups.splice(i, 1);
+            }
+        }
+
+        // Jump trails update
+        for (var i = jumpTrails.length - 1; i >= 0; i--) {
+            jumpTrails[i].life -= dt;
+            if (jumpTrails[i].life <= 0) {
+                jumpTrails.splice(i, 1);
+            }
+        }
+
+        // Cloud drift
+        for (var i = 0; i < clouds.length; i++) {
+            clouds[i].x -= clouds[i].speed * dt / 1000;
+            if (clouds[i].x + clouds[i].w < -20) {
+                clouds[i].x = W + 20 + Math.random() * 100;
+                clouds[i].y = 20 + Math.random() * 80;
+                clouds[i].w = 60 + Math.random() * 100;
+                clouds[i].h = 20 + Math.random() * 20;
             }
         }
 
@@ -681,26 +871,49 @@
         ctx.fillStyle = canvasBg;
         ctx.fillRect(0, 0, W, H);
 
-        // Sky gradient
+        // Rich sky gradient (dawn/dusk colors)
         var skyGrad = ctx.createLinearGradient(0, 0, 0, groundY);
         if (isDark) {
-            skyGrad.addColorStop(0, '#0a0a1a');
-            skyGrad.addColorStop(1, '#15152e');
+            skyGrad.addColorStop(0, '#070714');
+            skyGrad.addColorStop(0.3, '#0f0f2a');
+            skyGrad.addColorStop(0.6, '#1a1040');
+            skyGrad.addColorStop(0.8, '#2a1545');
+            skyGrad.addColorStop(1, '#351a3a');
         } else {
-            skyGrad.addColorStop(0, '#87CEEB');
-            skyGrad.addColorStop(1, '#c8e6f5');
+            skyGrad.addColorStop(0, '#4a1a6b');
+            skyGrad.addColorStop(0.15, '#8b3a8f');
+            skyGrad.addColorStop(0.35, '#d45f7a');
+            skyGrad.addColorStop(0.55, '#f0956a');
+            skyGrad.addColorStop(0.75, '#f5c06a');
+            skyGrad.addColorStop(1, '#ffe8a0');
         }
         ctx.fillStyle = skyGrad;
         ctx.fillRect(0, 0, W, groundY);
 
-        // Parallax mountains / hills / bushes
-        drawMountains(ctx, bgLayers[0].offset, groundY, isDark ? '#1a1a35' : '#a0b8d0', 0.6, 80);
-        drawMountains(ctx, bgLayers[1].offset, groundY, isDark ? '#22223d' : '#8aa8c0', 0.4, 50);
-        drawBushes(ctx, bgLayers[2].offset, groundY, isDark ? '#2a2a48' : '#6a9a70');
+        // Clouds layer
+        drawClouds(ctx, isDark);
 
-        // Ground fill
-        ctx.fillStyle = isDark ? '#2a2a3e' : '#8B7355';
+        // Parallax mountains with gradient fills
+        drawMountainsGradient(ctx, bgLayers[0].offset, groundY, isDark, 0, 0.6, 80);
+        drawMountainsGradient(ctx, bgLayers[1].offset, groundY, isDark, 1, 0.4, 50);
+        drawBushesGradient(ctx, bgLayers[2].offset, groundY, isDark);
+
+        // Ground with gradient fill
+        var groundGrad = ctx.createLinearGradient(0, groundY, 0, H);
+        if (isDark) {
+            groundGrad.addColorStop(0, '#3a3050');
+            groundGrad.addColorStop(0.3, '#2d2640');
+            groundGrad.addColorStop(1, '#1a1528');
+        } else {
+            groundGrad.addColorStop(0, '#9a8860');
+            groundGrad.addColorStop(0.3, '#8B7355');
+            groundGrad.addColorStop(1, '#6a5a3a');
+        }
+        ctx.fillStyle = groundGrad;
         ctx.fillRect(0, groundY, W, H - groundY);
+
+        // Grass blades along the top edge of the ground
+        drawGrassBlades(ctx, isDark);
 
         // Ground line
         ctx.strokeStyle = isDark ? '#444466' : '#6B5B3E';
@@ -725,6 +938,18 @@
             ctx.stroke();
         }
 
+        // Jump trails (drawn behind players)
+        for (var i = 0; i < jumpTrails.length; i++) {
+            var jt = jumpTrails[i];
+            var jtAlpha = Math.max(0, jt.life / jt.maxLife) * 0.5;
+            ctx.globalAlpha = jtAlpha;
+            ctx.fillStyle = jt.color;
+            ctx.beginPath();
+            ctx.arc(jt.x, jt.y, jt.size * (jt.life / jt.maxLife), 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+
         // Obstacles
         for (var i = 0; i < obstacles.length; i++) {
             drawObstacle(ctx, obstacles[i], isDark);
@@ -740,17 +965,33 @@
             players[i].draw(ctx);
         }
 
-        // Particles
+        // Particles (dust and other)
         for (var i = 0; i < particles.length; i++) {
             var pt = particles[i];
             var alpha = Math.max(0, pt.life / pt.maxLife);
-            ctx.globalAlpha = alpha;
-            ctx.fillStyle = pt.color || (isDark ? '#8888aa' : '#aa9977');
+            ctx.globalAlpha = pt.isDust ? alpha * 0.5 : alpha;
+            ctx.fillStyle = pt.color || (isDark ? '#8888aa' : '#c4b090');
             ctx.beginPath();
-            ctx.arc(pt.x, pt.y, pt.size * alpha, 0, Math.PI * 2);
+            ctx.arc(pt.x, pt.y, pt.size * (pt.isDust ? (0.5 + alpha * 0.5) : alpha), 0, Math.PI * 2);
             ctx.fill();
         }
         ctx.globalAlpha = 1;
+
+        // Score popups
+        for (var i = 0; i < scorePopups.length; i++) {
+            var sp = scorePopups[i];
+            var spAlpha = Math.max(0, sp.life / sp.maxLife);
+            ctx.save();
+            ctx.globalAlpha = spAlpha;
+            ctx.font = 'bold 16px "Segoe UI", system-ui, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#ffdd00';
+            ctx.shadowColor = '#ffaa00';
+            ctx.shadowBlur = 8;
+            ctx.fillText(sp.text, sp.x, sp.y);
+            ctx.shadowBlur = 0;
+            ctx.restore();
+        }
 
         // Speed level indicator
         var speedLevel = Math.floor(distance / 500);
@@ -764,58 +1005,204 @@
     }
 
     // ── Draw helpers ──
-    function drawMountains(c, offset, baseY, color, heightFactor, segWidth) {
-        c.fillStyle = color;
+
+    // Clouds
+    function drawClouds(c, isDark) {
+        c.save();
+        for (var i = 0; i < clouds.length; i++) {
+            var cl = clouds[i];
+            c.globalAlpha = isDark ? 0.08 : 0.35;
+            c.fillStyle = isDark ? '#aaaacc' : '#ffffff';
+            // Draw cloud as overlapping ellipses
+            c.beginPath();
+            c.ellipse(cl.x, cl.y, cl.w * 0.4, cl.h * 0.5, 0, 0, Math.PI * 2);
+            c.fill();
+            c.beginPath();
+            c.ellipse(cl.x + cl.w * 0.2, cl.y - cl.h * 0.2, cl.w * 0.3, cl.h * 0.45, 0, 0, Math.PI * 2);
+            c.fill();
+            c.beginPath();
+            c.ellipse(cl.x - cl.w * 0.15, cl.y + cl.h * 0.1, cl.w * 0.25, cl.h * 0.35, 0, 0, Math.PI * 2);
+            c.fill();
+        }
+        c.globalAlpha = 1;
+        c.restore();
+    }
+
+    // Mountains with gradient fills
+    function drawMountainsGradient(c, offset, baseY, isDark, layerIdx, heightFactor, segWidth) {
+        var off = ((offset % segWidth) + segWidth) % segWidth;
+
+        // Build mountain path for gradient fill
+        c.save();
         c.beginPath();
         c.moveTo(0, baseY);
-        var off = ((offset % segWidth) + segWidth) % segWidth;
+        var peaks = [];
         for (var x = -segWidth + off; x <= W + segWidth; x += segWidth) {
             var peakH = 30 + Math.abs(Math.sin(x * 0.005 + offset * 0.001)) * heightFactor * 100;
             c.lineTo(x, baseY - peakH);
             c.lineTo(x + segWidth / 2, baseY - peakH * 0.4);
+            peaks.push(peakH);
         }
         c.lineTo(W + segWidth, baseY);
         c.closePath();
+
+        // Gradient fill for mountains
+        var maxPeak = 0;
+        for (var i = 0; i < peaks.length; i++) {
+            if (peaks[i] > maxPeak) maxPeak = peaks[i];
+        }
+        var mGrad = c.createLinearGradient(0, baseY - maxPeak, 0, baseY);
+        if (isDark) {
+            if (layerIdx === 0) {
+                mGrad.addColorStop(0, '#2a1a45');
+                mGrad.addColorStop(0.5, '#1e1535');
+                mGrad.addColorStop(1, '#151028');
+            } else {
+                mGrad.addColorStop(0, '#25204a');
+                mGrad.addColorStop(0.5, '#1c1838');
+                mGrad.addColorStop(1, '#18132e');
+            }
+        } else {
+            if (layerIdx === 0) {
+                mGrad.addColorStop(0, '#6a4a9a');
+                mGrad.addColorStop(0.4, '#7a6aaa');
+                mGrad.addColorStop(1, '#9888bb');
+            } else {
+                mGrad.addColorStop(0, '#5a7aaa');
+                mGrad.addColorStop(0.4, '#7a9abb');
+                mGrad.addColorStop(1, '#9ab0cc');
+            }
+        }
+        c.fillStyle = mGrad;
         c.fill();
+
+        // Subtle snow caps on far mountains
+        if (layerIdx === 0) {
+            c.globalAlpha = isDark ? 0.1 : 0.2;
+            c.fillStyle = isDark ? '#aaaacc' : '#ffffff';
+            for (var x = -segWidth + off; x <= W + segWidth; x += segWidth) {
+                var peakH2 = 30 + Math.abs(Math.sin(x * 0.005 + offset * 0.001)) * heightFactor * 100;
+                if (peakH2 > 50) {
+                    c.beginPath();
+                    c.moveTo(x - 4, baseY - peakH2 + 10);
+                    c.lineTo(x, baseY - peakH2);
+                    c.lineTo(x + 4, baseY - peakH2 + 10);
+                    c.closePath();
+                    c.fill();
+                }
+            }
+            c.globalAlpha = 1;
+        }
+
+        c.restore();
     }
 
-    function drawBushes(c, offset, baseY, color) {
-        c.fillStyle = color;
+    // Hills/bushes with green gradient
+    function drawBushesGradient(c, offset, baseY, isDark) {
         var bOff = ((offset % 60) + 60) % 60;
+        c.save();
         for (var x = -60 + bOff; x <= W + 60; x += 60) {
             var bushH = 10 + Math.abs(Math.sin(x * 0.03)) * 15;
+            var bGrad = c.createRadialGradient(x, baseY - bushH * 0.3, 1, x, baseY, bushH);
+            if (isDark) {
+                bGrad.addColorStop(0, '#2a4a30');
+                bGrad.addColorStop(1, '#1a2a22');
+            } else {
+                bGrad.addColorStop(0, '#5aaa5a');
+                bGrad.addColorStop(1, '#3a7a3a');
+            }
+            c.fillStyle = bGrad;
             c.beginPath();
             c.arc(x, baseY, bushH, Math.PI, 0);
             c.fill();
         }
+        c.restore();
+    }
+
+    // Grass blades at top of ground
+    function drawGrassBlades(c, isDark) {
+        c.save();
+        var grassOff = ((groundOffset % 12) + 12) % 12;
+        for (var gx = -12 + grassOff; gx < W + 12; gx += 6) {
+            var bladeH = 4 + Math.abs(Math.sin(gx * 0.2 + globalTime * 0.001)) * 5;
+            var sway = Math.sin(gx * 0.15 + globalTime * 0.002) * 2;
+            c.strokeStyle = isDark ? '#3a5a3a' : '#6a9a40';
+            c.lineWidth = 1.5;
+            c.beginPath();
+            c.moveTo(gx, groundY);
+            c.quadraticCurveTo(gx + sway, groundY - bladeH * 0.6, gx + sway * 1.5, groundY - bladeH);
+            c.stroke();
+        }
+        c.restore();
     }
 
     function drawObstacle(c, obs, isDark) {
         c.save();
         if (obs.type === 'low') {
             if (obs.variant === 'rock') {
-                // Triangular rock
-                c.fillStyle = isDark ? '#666688' : '#888877';
+                // 3D rock with gradient
+                var rockGrad = c.createLinearGradient(obs.x, obs.y, obs.x + obs.w, obs.y + obs.h);
+                if (isDark) {
+                    rockGrad.addColorStop(0, '#7777aa');
+                    rockGrad.addColorStop(0.5, '#555580');
+                    rockGrad.addColorStop(1, '#444466');
+                } else {
+                    rockGrad.addColorStop(0, '#aaa999');
+                    rockGrad.addColorStop(0.5, '#888877');
+                    rockGrad.addColorStop(1, '#666655');
+                }
+                c.fillStyle = rockGrad;
                 c.beginPath();
                 c.moveTo(obs.x, obs.y + obs.h);
+                c.lineTo(obs.x + obs.w * 0.3, obs.y + 3);
                 c.lineTo(obs.x + obs.w / 2, obs.y);
+                c.lineTo(obs.x + obs.w * 0.8, obs.y + 5);
                 c.lineTo(obs.x + obs.w, obs.y + obs.h);
                 c.closePath();
                 c.fill();
-                // Highlight face
-                c.fillStyle = isDark ? '#7777aa' : '#999988';
+                // Highlight face for 3D look
+                var hlGrad = c.createLinearGradient(obs.x + obs.w * 0.3, obs.y, obs.x + obs.w * 0.6, obs.y + obs.h);
+                hlGrad.addColorStop(0, isDark ? 'rgba(150,150,200,0.3)' : 'rgba(255,255,255,0.25)');
+                hlGrad.addColorStop(1, 'rgba(0,0,0,0)');
+                c.fillStyle = hlGrad;
                 c.beginPath();
                 c.moveTo(obs.x + obs.w * 0.3, obs.y + obs.h);
-                c.lineTo(obs.x + obs.w / 2, obs.y + 4);
+                c.lineTo(obs.x + obs.w / 2, obs.y + 2);
                 c.lineTo(obs.x + obs.w * 0.6, obs.y + obs.h * 0.5);
                 c.closePath();
                 c.fill();
+                // Shadow at base
+                c.fillStyle = isDark ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.15)';
+                c.beginPath();
+                c.ellipse(obs.x + obs.w / 2, obs.y + obs.h + 2, obs.w * 0.45, 3, 0, 0, Math.PI * 2);
+                c.fill();
             } else {
-                // Log
-                c.fillStyle = isDark ? '#5a4a3a' : '#8B6914';
+                // Log with wood grain
+                var logGrad = c.createLinearGradient(obs.x, obs.y + 4, obs.x, obs.y + obs.h);
+                if (isDark) {
+                    logGrad.addColorStop(0, '#6a5540');
+                    logGrad.addColorStop(0.4, '#5a4530');
+                    logGrad.addColorStop(1, '#4a3520');
+                } else {
+                    logGrad.addColorStop(0, '#a07830');
+                    logGrad.addColorStop(0.4, '#8B6914');
+                    logGrad.addColorStop(1, '#7a5a10');
+                }
+                c.fillStyle = logGrad;
                 roundRect(c, obs.x, obs.y + 4, obs.w, obs.h - 4, 5);
                 c.fill();
-                // Tree rings
+
+                // Wood grain lines
+                c.strokeStyle = isDark ? 'rgba(90,70,50,0.6)' : 'rgba(100,70,20,0.4)';
+                c.lineWidth = 0.8;
+                for (var gy = obs.y + 8; gy < obs.y + obs.h - 2; gy += 4) {
+                    c.beginPath();
+                    c.moveTo(obs.x + 3, gy);
+                    c.bezierCurveTo(obs.x + obs.w * 0.3, gy - 1, obs.x + obs.w * 0.7, gy + 1, obs.x + obs.w - 3, gy);
+                    c.stroke();
+                }
+
+                // Tree rings on end
                 c.strokeStyle = isDark ? '#4a3a2a' : '#7a5a10';
                 c.lineWidth = 1;
                 c.beginPath();
@@ -824,6 +1211,12 @@
                 c.beginPath();
                 c.arc(obs.x + obs.w / 2, obs.y + obs.h / 2 + 2, 9, 0, Math.PI * 2);
                 c.stroke();
+
+                // Shadow
+                c.fillStyle = isDark ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.12)';
+                c.beginPath();
+                c.ellipse(obs.x + obs.w / 2, obs.y + obs.h + 2, obs.w * 0.45, 3, 0, 0, Math.PI * 2);
+                c.fill();
             }
         } else {
             if (obs.variant === 'branch') {
@@ -838,32 +1231,86 @@
                     c.fill();
                 }
             } else {
-                // Bird
+                // Bird with colored wing detail
                 var wingY = Math.sin(obs.wingPhase) * 6;
                 var bx = obs.x + obs.w / 2;
                 var by = obs.y + obs.h / 2;
-                // Body
-                c.fillStyle = isDark ? '#888899' : '#555566';
+
+                // Body with gradient
+                var birdGrad = c.createRadialGradient(bx - 2, by - 2, 1, bx, by, 10);
+                if (isDark) {
+                    birdGrad.addColorStop(0, '#aaaacc');
+                    birdGrad.addColorStop(1, '#666688');
+                } else {
+                    birdGrad.addColorStop(0, '#7788aa');
+                    birdGrad.addColorStop(1, '#445566');
+                }
+                c.fillStyle = birdGrad;
                 c.beginPath();
                 c.ellipse(bx, by, 10, 6, 0, 0, Math.PI * 2);
                 c.fill();
-                // Wings
-                c.strokeStyle = isDark ? '#9999aa' : '#666677';
-                c.lineWidth = 3;
-                c.lineCap = 'round';
+
+                // Eye
+                c.fillStyle = '#ffffff';
                 c.beginPath();
-                c.moveTo(bx - 6, by);
-                c.lineTo(bx - 14, by + wingY - 6);
-                c.stroke();
+                c.arc(bx - 6, by - 2, 2, 0, Math.PI * 2);
+                c.fill();
+                c.fillStyle = '#111';
                 c.beginPath();
-                c.moveTo(bx + 6, by);
-                c.lineTo(bx + 14, by + wingY - 6);
-                c.stroke();
+                c.arc(bx - 6, by - 2, 1, 0, Math.PI * 2);
+                c.fill();
+
+                // Wings with colored fill
+                var wingColor1 = isDark ? '#8899bb' : '#5577aa';
+                var wingColor2 = isDark ? '#aabbdd' : '#88aacc';
+                // Left wing
+                c.fillStyle = wingColor1;
+                c.beginPath();
+                c.moveTo(bx - 4, by - 1);
+                c.lineTo(bx - 14, by + wingY - 8);
+                c.lineTo(bx - 8, by + wingY - 3);
+                c.closePath();
+                c.fill();
+                // Left wing highlight
+                c.fillStyle = wingColor2;
+                c.beginPath();
+                c.moveTo(bx - 5, by);
+                c.lineTo(bx - 12, by + wingY - 6);
+                c.lineTo(bx - 7, by + wingY - 2);
+                c.closePath();
+                c.fill();
+                // Right wing
+                c.fillStyle = wingColor1;
+                c.beginPath();
+                c.moveTo(bx + 4, by - 1);
+                c.lineTo(bx + 14, by + wingY - 8);
+                c.lineTo(bx + 8, by + wingY - 3);
+                c.closePath();
+                c.fill();
+                // Right wing highlight
+                c.fillStyle = wingColor2;
+                c.beginPath();
+                c.moveTo(bx + 5, by);
+                c.lineTo(bx + 12, by + wingY - 6);
+                c.lineTo(bx + 7, by + wingY - 2);
+                c.closePath();
+                c.fill();
+
+                // Tail feathers
+                c.fillStyle = isDark ? '#7788aa' : '#4466888';
+                c.beginPath();
+                c.moveTo(bx + 8, by - 1);
+                c.lineTo(bx + 16, by - 3);
+                c.lineTo(bx + 15, by + 2);
+                c.lineTo(bx + 8, by + 1);
+                c.closePath();
+                c.fill();
+
                 // Beak
-                c.fillStyle = isDark ? '#dd8833' : '#cc7722';
+                c.fillStyle = isDark ? '#ee9933' : '#dd8822';
                 c.beginPath();
                 c.moveTo(bx - 10, by - 1);
-                c.lineTo(bx - 16, by + 1);
+                c.lineTo(bx - 17, by + 1);
                 c.lineTo(bx - 10, by + 2);
                 c.closePath();
                 c.fill();
@@ -874,19 +1321,45 @@
 
     function drawCoin(c, coin) {
         var bobY = Math.sin(coin.bobPhase) * 5;
+        var spinScale = Math.abs(Math.cos(coin.spinPhase));
+        var cx = coin.x;
+        var cy = coin.y + bobY;
+        var r = coin.size / 2;
+
         c.save();
-        c.fillStyle = '#ffdd00';
+
+        // Glow effect
         c.shadowColor = '#ffdd00';
-        c.shadowBlur = 6;
+        c.shadowBlur = 12 + Math.sin(coin.spinPhase * 2) * 4;
+
+        // Coin body with rotation squish for 3D spin
+        var coinGrad = c.createRadialGradient(cx - r * 0.3, cy - r * 0.3, 0, cx, cy, r);
+        coinGrad.addColorStop(0, '#ffee55');
+        coinGrad.addColorStop(0.6, '#ffdd00');
+        coinGrad.addColorStop(1, '#cc9900');
+        c.fillStyle = coinGrad;
         c.beginPath();
-        c.arc(coin.x, coin.y + bobY, coin.size / 2, 0, Math.PI * 2);
+        c.ellipse(cx, cy, r * Math.max(0.15, spinScale), r, 0, 0, Math.PI * 2);
         c.fill();
-        // Inner dot
-        c.fillStyle = '#ffaa00';
-        c.shadowBlur = 0;
-        c.beginPath();
-        c.arc(coin.x, coin.y + bobY, coin.size / 4, 0, Math.PI * 2);
-        c.fill();
+
+        // Inner detail (only visible when not too squished)
+        if (spinScale > 0.3) {
+            c.shadowBlur = 0;
+            c.fillStyle = '#ffaa00';
+            c.beginPath();
+            c.ellipse(cx, cy, r * 0.45 * spinScale, r * 0.45, 0, 0, Math.PI * 2);
+            c.fill();
+
+            // Dollar sign or star
+            c.fillStyle = '#cc8800';
+            c.font = 'bold ' + Math.floor(r * 1.0) + 'px sans-serif';
+            c.textAlign = 'center';
+            c.textBaseline = 'middle';
+            c.globalAlpha = spinScale * 0.8;
+            c.fillText('$', cx, cy + 1);
+            c.globalAlpha = 1;
+        }
+
         c.restore();
     }
 

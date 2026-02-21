@@ -20,6 +20,14 @@
     var MAX_MISSED = 3;
     var GAME_TIME_2P = 90; // seconds
 
+    // ─── Visual Constants ───
+    var PERFECT_THRESHOLD = 0.15; // 15% of center for perfect landing
+    var SQUASH_INITIAL = 0.3;
+    var SQUASH_DECAY = 8; // how fast squash decays back to 0
+    var WIND_GUST_INTERVAL_MIN = 3;
+    var WIND_GUST_INTERVAL_MAX = 7;
+    var CLOUD_COUNT = 5;
+
     // ─── State ───
     var mode = 1;
     var running = false;
@@ -29,12 +37,20 @@
     var lastTime = 0;
     var timer2p = 0;
     var gameEnded = false;
+    var globalTime = 0; // for clouds/wind animation
 
-    // ─── Drawing: Animal ───
-    function drawAnimal(ctx, x, y, radius, animalIdx, alpha) {
+    // ─── Drawing: Animal (with squash/stretch support) ───
+    function drawAnimal(ctx, x, y, radius, animalIdx, alpha, scaleX, scaleY) {
         var a = ANIMALS[animalIdx % ANIMALS.length];
         ctx.save();
         ctx.globalAlpha = alpha !== undefined ? alpha : 1;
+
+        // Apply squash/stretch scaling around animal center
+        var sx = scaleX !== undefined ? scaleX : 1;
+        var sy = scaleY !== undefined ? scaleY : 1;
+        ctx.translate(x, y);
+        ctx.scale(sx, sy);
+        ctx.translate(-x, -y);
 
         var r = radius;
 
@@ -251,7 +267,7 @@
     // ─── Player State Factory ───
     function createPlayer(areaWidth, areaHeight) {
         return {
-            tower: [],           // { x, y, radius, animalIdx, vx, settled }
+            tower: [],           // { x, y, radius, animalIdx, vx, settled, squash }
             swinging: null,      // current animal swinging at top
             falling: [],         // animals falling off
             missed: 0,
@@ -265,8 +281,45 @@
             gameOver: false,
             wobbleTime: 0,
             particles: [],
-            dropPressed: false
+            dropPressed: false,
+            // Visual enhancement state
+            popups: [],          // floating text popups
+            clouds: initClouds(areaWidth, areaHeight),
+            windGusts: [],
+            windTimer: WIND_GUST_INTERVAL_MIN + Math.random() * (WIND_GUST_INTERVAL_MAX - WIND_GUST_INTERVAL_MIN),
+            grassBlades: initGrass(areaWidth)
         };
+    }
+
+    // ─── Cloud Initialization ───
+    function initClouds(areaWidth, areaHeight) {
+        var clouds = [];
+        for (var i = 0; i < CLOUD_COUNT; i++) {
+            clouds.push({
+                x: Math.random() * areaWidth * 1.5 - areaWidth * 0.25,
+                y: 30 + Math.random() * areaHeight * 0.25,
+                w: 40 + Math.random() * 60,
+                h: 18 + Math.random() * 20,
+                speed: 5 + Math.random() * 12,
+                alpha: 0.2 + Math.random() * 0.25
+            });
+        }
+        return clouds;
+    }
+
+    // ─── Grass Initialization ───
+    function initGrass(areaWidth) {
+        var blades = [];
+        var count = Math.floor(areaWidth / 4);
+        for (var i = 0; i < count; i++) {
+            blades.push({
+                x: (areaWidth / count) * i + Math.random() * 4,
+                h: 4 + Math.random() * 8,
+                lean: (Math.random() - 0.5) * 0.4,
+                shade: Math.random() * 0.3
+            });
+        }
+        return blades;
     }
 
     // ─── Animal Size ───
@@ -319,11 +372,162 @@
         CGameAudio.play('click');
     }
 
+    // ─── Perfect Landing Check ───
+    function isPerfectLanding(p, sw) {
+        var targetX;
+        if (p.tower.length === 0) {
+            targetX = p.areaWidth / 2;
+        } else {
+            var top = getTopAnimal(p);
+            targetX = top ? top.x : p.areaWidth / 2;
+        }
+        var dist = Math.abs(sw.x - targetX);
+        var maxDist = sw.radius * PERFECT_THRESHOLD;
+        return dist <= maxDist;
+    }
+
+    // ─── Spawn Popup Text ───
+    function spawnPopup(p, x, y, text, color) {
+        p.popups.push({
+            x: x,
+            y: y,
+            text: text,
+            life: 1.2,
+            maxLife: 1.2,
+            color: color || '#FFD700',
+            vy: -60,
+            scale: 1.5
+        });
+    }
+
+    // ─── Spawn Sparkle Particles (for perfect landing) ───
+    function spawnSparkles(p, x, y, count) {
+        for (var i = 0; i < count; i++) {
+            var angle = (Math.PI * 2 / count) * i + Math.random() * 0.5;
+            var speed = 80 + Math.random() * 120;
+            p.particles.push({
+                x: x,
+                y: y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed - 80,
+                life: 0.6 + Math.random() * 0.4,
+                maxLife: 1.0,
+                color: ['#FFD700', '#FFF176', '#FFFFFF', '#FFE082', '#FFAB00'][Math.floor(Math.random() * 5)],
+                type: 'sparkle',
+                size: 2 + Math.random() * 3,
+                rotation: Math.random() * Math.PI * 2
+            });
+        }
+    }
+
+    // ─── Spawn Dust Particles (for normal landing) ───
+    function spawnDust(p, x, y, count) {
+        for (var i = 0; i < count; i++) {
+            var angle = -Math.PI + Math.random() * Math.PI; // spread upward
+            var speed = 30 + Math.random() * 50;
+            p.particles.push({
+                x: x + (Math.random() - 0.5) * 20,
+                y: y,
+                vx: Math.cos(angle) * speed,
+                vy: -Math.abs(Math.sin(angle) * speed) - 10,
+                life: 0.3 + Math.random() * 0.3,
+                maxLife: 0.6,
+                color: '#B0926A',
+                type: 'dust',
+                size: 2 + Math.random() * 3,
+                rotation: 0
+            });
+        }
+    }
+
+    // ─── Spawn Debris Particles (for stack collapse / miss) ───
+    function spawnDebris(p, x, y, count) {
+        for (var i = 0; i < count; i++) {
+            var angle = (Math.PI * 2 / count) * i + Math.random() * 0.8;
+            var speed = 100 + Math.random() * 150;
+            p.particles.push({
+                x: x,
+                y: y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed - 100,
+                life: 0.7 + Math.random() * 0.5,
+                maxLife: 1.2,
+                color: ['#8D6E63', '#A1887F', '#BCAAA4', '#D7CCC8', '#795548'][Math.floor(Math.random() * 5)],
+                type: 'debris',
+                size: 3 + Math.random() * 4,
+                rotation: Math.random() * Math.PI * 2
+            });
+        }
+    }
+
+    // ─── Spawn Wind Gust ───
+    function spawnWindGust(p) {
+        var yStart = Math.random() * p.areaHeight * 0.8;
+        var direction = Math.random() > 0.5 ? 1 : -1;
+        var streakCount = 3 + Math.floor(Math.random() * 4);
+        for (var i = 0; i < streakCount; i++) {
+            p.windGusts.push({
+                x: direction > 0 ? -20 - Math.random() * 40 : p.areaWidth + 20 + Math.random() * 40,
+                y: yStart + (Math.random() - 0.5) * 60,
+                length: 20 + Math.random() * 40,
+                speed: (150 + Math.random() * 100) * direction,
+                life: 1.5 + Math.random() * 1.0,
+                maxLife: 2.5,
+                alpha: 0.15 + Math.random() * 0.15
+            });
+        }
+    }
+
     // ─── Update Player ───
     function updatePlayer(p, dt) {
         if (p.gameOver) return;
 
         p.wobbleTime += dt;
+
+        // Update clouds
+        for (var ci = 0; ci < p.clouds.length; ci++) {
+            var cloud = p.clouds[ci];
+            cloud.x += cloud.speed * dt;
+            if (cloud.x > p.areaWidth + cloud.w) {
+                cloud.x = -cloud.w * 1.5;
+                cloud.y = 30 + Math.random() * p.areaHeight * 0.25;
+            }
+        }
+
+        // Update wind gusts
+        p.windTimer -= dt;
+        if (p.windTimer <= 0) {
+            spawnWindGust(p);
+            p.windTimer = WIND_GUST_INTERVAL_MIN + Math.random() * (WIND_GUST_INTERVAL_MAX - WIND_GUST_INTERVAL_MIN);
+        }
+        for (var wi = p.windGusts.length - 1; wi >= 0; wi--) {
+            var wg = p.windGusts[wi];
+            wg.x += wg.speed * dt;
+            wg.life -= dt;
+            if (wg.life <= 0) {
+                p.windGusts.splice(wi, 1);
+            }
+        }
+
+        // Update popups
+        for (var pi = p.popups.length - 1; pi >= 0; pi--) {
+            var popup = p.popups[pi];
+            popup.y += popup.vy * dt;
+            popup.life -= dt;
+            popup.scale = Math.max(1.0, popup.scale - dt * 2);
+            if (popup.life <= 0) {
+                p.popups.splice(pi, 1);
+            }
+        }
+
+        // Update squash on tower animals
+        for (var si = 0; si < p.tower.length; si++) {
+            var ta = p.tower[si];
+            if (ta.squash !== undefined && ta.squash > 0.001) {
+                ta.squash *= Math.exp(-SQUASH_DECAY * dt);
+                if (ta.squash < 0.001) ta.squash = 0;
+            }
+        }
 
         // Update swinging animal
         var sw = p.swinging;
@@ -349,10 +553,19 @@
                     // Perfect land
                     sw.x = getSnapX(p, sw);
                     sw.settled = true;
-                    p.tower.push({ x: sw.x, y: sw.y, radius: sw.radius, animalIdx: sw.animalIdx, vx: 0, settled: true });
-                    p.score++;
+                    var perfect = isPerfectLanding(p, sw);
+                    var newTowerEntry = { x: sw.x, y: sw.y, radius: sw.radius, animalIdx: sw.animalIdx, vx: 0, settled: true, squash: SQUASH_INITIAL };
+                    p.tower.push(newTowerEntry);
+                    if (perfect) {
+                        p.score += 2; // double points for perfect
+                        spawnPopup(p, sw.x, sw.y - sw.radius - 15, 'PERFECT!', '#FFD700');
+                        spawnSparkles(p, sw.x, sw.y - sw.radius, 16);
+                    } else {
+                        p.score++;
+                    }
                     CGameAudio.play('score');
                     spawnParticles(p, sw.x, sw.y - sw.radius, 8);
+                    spawnDust(p, sw.x, sw.y + sw.radius, 6);
                     p.swinging = null;
                     updateCamera(p);
                     spawnSwinging(p);
@@ -361,10 +574,11 @@
                     var slideDir = sw.x > getSnapX(p, sw) ? 1 : -1;
                     sw.x += slideDir * sw.radius * 0.2;
                     sw.settled = true;
-                    p.tower.push({ x: sw.x, y: sw.y, radius: sw.radius, animalIdx: sw.animalIdx, vx: 0, settled: true });
+                    p.tower.push({ x: sw.x, y: sw.y, radius: sw.radius, animalIdx: sw.animalIdx, vx: 0, settled: true, squash: SQUASH_INITIAL });
                     p.score++;
                     CGameAudio.play('pop');
                     spawnParticles(p, sw.x, sw.y - sw.radius, 4);
+                    spawnDust(p, sw.x, sw.y + sw.radius, 4);
                     p.swinging = null;
                     updateCamera(p);
                     spawnSwinging(p);
@@ -374,6 +588,7 @@
                     p.falling.push({ x: sw.x, y: sw.y, radius: sw.radius, animalIdx: sw.animalIdx, vx: fallDir * 120, vy: -150, alpha: 1 });
                     p.missed++;
                     CGameAudio.play('lose');
+                    spawnDebris(p, sw.x, sw.y, 10);
                     p.swinging = null;
                     if (p.missed >= MAX_MISSED) {
                         p.gameOver = true;
@@ -388,6 +603,7 @@
                 p.falling.push({ x: sw.x, y: sw.y, radius: sw.radius, animalIdx: sw.animalIdx, vx: 0, vy: 0, alpha: 1 });
                 p.missed++;
                 CGameAudio.play('lose');
+                spawnDebris(p, sw.x, sw.y, 8);
                 p.swinging = null;
                 if (p.missed >= MAX_MISSED) {
                     p.gameOver = true;
@@ -415,6 +631,9 @@
             pt.x += pt.vx * dt;
             pt.y += pt.vy * dt;
             pt.vy += 200 * dt;
+            if (pt.type === 'sparkle') {
+                pt.rotation += 5 * dt;
+            }
             pt.life -= dt;
             if (pt.life <= 0) {
                 p.particles.splice(j, 1);
@@ -488,8 +707,216 @@
                 vy: Math.sin(angle) * (60 + Math.random() * 80) - 50,
                 life: 0.5 + Math.random() * 0.3,
                 maxLife: 0.8,
-                color: ['#FFD700', '#FF6B6B', '#4ECDC4', '#45B7D1', '#96E6A1'][Math.floor(Math.random() * 5)]
+                color: ['#FFD700', '#FF6B6B', '#4ECDC4', '#45B7D1', '#96E6A1'][Math.floor(Math.random() * 5)],
+                type: 'confetti',
+                size: 3,
+                rotation: 0
             });
+        }
+    }
+
+    // ─── Draw Sky Background ───
+    function drawSky(ctx, p, width, isDark) {
+        var heightFactor = Math.min(p.score / 20, 1); // darken sky as stack grows
+
+        var bgGrad = ctx.createLinearGradient(0, 0, 0, p.areaHeight);
+        if (isDark) {
+            var topR = Math.floor(13 - heightFactor * 5);
+            var topG = Math.floor(17 - heightFactor * 8);
+            var topB = Math.floor(23 + heightFactor * 20);
+            bgGrad.addColorStop(0, 'rgb(' + topR + ',' + topG + ',' + topB + ')');
+            bgGrad.addColorStop(1, '#161b22');
+        } else {
+            // Blue at top, transitions to light blue/white at horizon
+            // Gets more purple/dark as stack gets higher
+            var r1 = Math.floor(100 - heightFactor * 40);
+            var g1 = Math.floor(160 - heightFactor * 60);
+            var b1 = Math.floor(230 + heightFactor * 20);
+            var r2 = Math.floor(220 + heightFactor * 10);
+            var g2 = Math.floor(235 - heightFactor * 30);
+            var b2 = Math.floor(250 - heightFactor * 20);
+            bgGrad.addColorStop(0, 'rgb(' + Math.min(255, r1) + ',' + Math.max(0, g1) + ',' + Math.min(255, b1) + ')');
+            bgGrad.addColorStop(0.7, 'rgb(' + Math.min(255, r2) + ',' + Math.max(0, g2) + ',' + Math.min(255, b2) + ')');
+            bgGrad.addColorStop(1, '#f0f4f8');
+        }
+        ctx.fillStyle = bgGrad;
+        ctx.fillRect(0, 0, width, p.areaHeight);
+    }
+
+    // ─── Draw Clouds ───
+    function drawClouds(ctx, p, width, isDark) {
+        for (var i = 0; i < p.clouds.length; i++) {
+            var c = p.clouds[i];
+            ctx.save();
+            ctx.globalAlpha = isDark ? c.alpha * 0.3 : c.alpha;
+            ctx.fillStyle = isDark ? '#334155' : '#FFFFFF';
+
+            // Draw cloud as overlapping ellipses
+            ctx.beginPath();
+            ctx.ellipse(c.x, c.y, c.w * 0.5, c.h * 0.5, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.ellipse(c.x - c.w * 0.25, c.y + c.h * 0.1, c.w * 0.35, c.h * 0.4, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.ellipse(c.x + c.w * 0.3, c.y + c.h * 0.05, c.w * 0.4, c.h * 0.35, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+        }
+    }
+
+    // ─── Draw Wind Gusts ───
+    function drawWindGusts(ctx, p, isDark) {
+        for (var i = 0; i < p.windGusts.length; i++) {
+            var wg = p.windGusts[i];
+            var lifeRatio = wg.life / wg.maxLife;
+            // Fade in and out
+            var fadeAlpha = lifeRatio > 0.7 ? (1 - lifeRatio) / 0.3 : lifeRatio > 0.3 ? 1 : lifeRatio / 0.3;
+            ctx.save();
+            ctx.globalAlpha = wg.alpha * fadeAlpha;
+            ctx.strokeStyle = isDark ? 'rgba(200,220,255,0.5)' : 'rgba(150,180,220,0.6)';
+            ctx.lineWidth = 1;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(wg.x, wg.y);
+            ctx.lineTo(wg.x + wg.length * (wg.speed > 0 ? 1 : -1), wg.y + (Math.random() - 0.5) * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+
+    // ─── Draw Grass ───
+    function drawGrass(ctx, p, width, isDark) {
+        var baseY = p.baseY;
+        for (var i = 0; i < p.grassBlades.length; i++) {
+            var b = p.grassBlades[i];
+            var sway = Math.sin(globalTime * 1.5 + b.x * 0.05) * 2;
+            ctx.save();
+            ctx.globalAlpha = 0.7 + b.shade * 0.3;
+            if (isDark) {
+                var green = Math.floor(100 + b.shade * 60);
+                ctx.strokeStyle = 'rgb(30,' + green + ',30)';
+            } else {
+                var greenVal = Math.floor(140 + b.shade * 80);
+                ctx.strokeStyle = 'rgb(60,' + greenVal + ',60)';
+            }
+            ctx.lineWidth = 1.5;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(b.x, baseY);
+            ctx.quadraticCurveTo(b.x + b.lean * b.h + sway, baseY - b.h * 0.6, b.x + b.lean * b.h * 1.5 + sway * 1.3, baseY - b.h);
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+
+    // ─── Draw Shadow Under Animal ───
+    function drawAnimalShadow(ctx, x, y, radius, stackIndex, totalStack, baseY) {
+        // Shadow gets smaller and more transparent higher up
+        var heightRatio = stackIndex / Math.max(totalStack, 1);
+        var shadowAlpha = 0.25 * (1 - heightRatio * 0.7);
+        var shadowScale = 1 - heightRatio * 0.4;
+        var shadowOffsetY = radius * 0.85;
+
+        ctx.save();
+        ctx.globalAlpha = shadowAlpha;
+        ctx.fillStyle = '#000000';
+        ctx.beginPath();
+        ctx.ellipse(x + 2, y + shadowOffsetY, radius * 0.8 * shadowScale, radius * 0.2 * shadowScale, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    // ─── Draw Height Indicator ───
+    function drawHeightIndicator(ctx, p, width, isDark) {
+        var barX = width - 18;
+        var barTop = 40;
+        var barBottom = p.areaHeight - 10;
+        var barHeight = barBottom - barTop;
+        var maxDisplayHeight = 30;
+
+        // Draw ruler line
+        ctx.save();
+        ctx.globalAlpha = 0.2;
+        ctx.strokeStyle = isDark ? '#FFFFFF' : '#000000';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(barX, barTop);
+        ctx.lineTo(barX, barBottom);
+        ctx.stroke();
+
+        // Draw milestone markers
+        ctx.globalAlpha = 0.3;
+        ctx.font = '8px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillStyle = isDark ? '#FFFFFF' : '#000000';
+
+        var milestones = [5, 10, 15, 20, 25, 30];
+        for (var m = 0; m < milestones.length; m++) {
+            var milestone = milestones[m];
+            var my = barBottom - (milestone / maxDisplayHeight) * barHeight;
+            if (my > barTop) {
+                ctx.beginPath();
+                ctx.moveTo(barX - 6, my);
+                ctx.lineTo(barX + 2, my);
+                ctx.stroke();
+                ctx.fillText(milestone.toString(), barX - 8, my + 3);
+            }
+        }
+
+        // Draw current height fill
+        var currentHeight = Math.min(p.score, maxDisplayHeight);
+        var fillHeight = (currentHeight / maxDisplayHeight) * barHeight;
+        var fillGrad = ctx.createLinearGradient(0, barBottom - fillHeight, 0, barBottom);
+        if (isDark) {
+            fillGrad.addColorStop(0, 'rgba(100,200,255,0.5)');
+            fillGrad.addColorStop(1, 'rgba(100,200,255,0.15)');
+        } else {
+            fillGrad.addColorStop(0, 'rgba(50,150,250,0.5)');
+            fillGrad.addColorStop(1, 'rgba(50,150,250,0.15)');
+        }
+        ctx.globalAlpha = 0.6;
+        ctx.fillStyle = fillGrad;
+        ctx.fillRect(barX - 3, barBottom - fillHeight, 6, fillHeight);
+
+        // Current height marker
+        if (p.score > 0) {
+            ctx.globalAlpha = 0.8;
+            ctx.fillStyle = isDark ? '#64B5F6' : '#1976D2';
+            ctx.beginPath();
+            var markerY = barBottom - fillHeight;
+            ctx.moveTo(barX - 8, markerY);
+            ctx.lineTo(barX + 4, markerY - 4);
+            ctx.lineTo(barX + 4, markerY + 4);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        ctx.restore();
+    }
+
+    // ─── Draw Popups ───
+    function drawPopups(ctx, p) {
+        for (var i = 0; i < p.popups.length; i++) {
+            var popup = p.popups[i];
+            var lifeRatio = popup.life / popup.maxLife;
+            ctx.save();
+            ctx.globalAlpha = lifeRatio;
+            ctx.font = 'bold ' + Math.floor(16 * popup.scale) + 'px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            // Outline
+            ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+            ctx.lineWidth = 3;
+            ctx.strokeText(popup.text, popup.x, popup.y);
+
+            // Fill
+            ctx.fillStyle = popup.color;
+            ctx.fillText(popup.text, popup.x, popup.y);
+
+            ctx.restore();
         }
     }
 
@@ -501,18 +928,15 @@
         ctx.clip();
         ctx.translate(offsetX, 0);
 
-        // Background gradient
+        // Background sky
         var isDark = document.body.getAttribute('data-theme') === 'dark';
-        var bgGrad = ctx.createLinearGradient(0, 0, 0, p.areaHeight);
-        if (isDark) {
-            bgGrad.addColorStop(0, '#0d1117');
-            bgGrad.addColorStop(1, '#161b22');
-        } else {
-            bgGrad.addColorStop(0, '#dbeafe');
-            bgGrad.addColorStop(1, '#f0f4f8');
-        }
-        ctx.fillStyle = bgGrad;
-        ctx.fillRect(0, 0, width, p.areaHeight);
+        drawSky(ctx, p, width, isDark);
+
+        // Clouds (in screen space, not affected by camera)
+        drawClouds(ctx, p, width, isDark);
+
+        // Wind gusts (in screen space)
+        drawWindGusts(ctx, p, isDark);
 
         ctx.save();
         ctx.translate(0, -p.cameraY);
@@ -524,16 +948,27 @@
         ctx.fillStyle = isDark ? '#2d5a2d' : '#5ab85a';
         ctx.fillRect(0, p.baseY, width, 4);
 
+        // Grass blades
+        drawGrass(ctx, p, width, isDark);
+
         // Tower wobble
         var wobbleAmount = Math.min(p.score * 0.15, 3);
         var wobble = Math.sin(p.wobbleTime * 2) * wobbleAmount;
 
-        // Draw tower animals
+        // Draw tower animals (with shadows and squash/stretch)
         ctx.save();
         ctx.translate(wobble, 0);
         for (var i = 0; i < p.tower.length; i++) {
             var t = p.tower[i];
-            drawAnimal(ctx, t.x, t.y, t.radius, t.animalIdx, 1);
+            // Draw shadow under animal
+            drawAnimalShadow(ctx, t.x, t.y, t.radius, i, p.tower.length, p.baseY);
+
+            // Calculate squash/stretch
+            var squash = t.squash || 0;
+            var scaleX = 1 + squash;
+            var scaleY = 1 - squash;
+
+            drawAnimal(ctx, t.x, t.y, t.radius, t.animalIdx, 1, scaleX, scaleY);
         }
         ctx.restore();
 
@@ -564,17 +999,55 @@
         for (var k = 0; k < p.particles.length; k++) {
             var pt = p.particles[k];
             var alpha = pt.life / pt.maxLife;
-            ctx.fillStyle = pt.color;
+            ctx.save();
             ctx.globalAlpha = alpha;
-            ctx.beginPath();
-            ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.globalAlpha = 1;
+
+            if (pt.type === 'sparkle') {
+                // Draw as a small 4-pointed star
+                ctx.fillStyle = pt.color;
+                ctx.translate(pt.x, pt.y);
+                ctx.rotate(pt.rotation);
+                ctx.beginPath();
+                var sz = pt.size;
+                for (var sp = 0; sp < 4; sp++) {
+                    var a1 = (sp / 4) * Math.PI * 2;
+                    var a2 = ((sp + 0.5) / 4) * Math.PI * 2;
+                    ctx.lineTo(Math.cos(a1) * sz, Math.sin(a1) * sz);
+                    ctx.lineTo(Math.cos(a2) * sz * 0.3, Math.sin(a2) * sz * 0.3);
+                }
+                ctx.closePath();
+                ctx.fill();
+            } else if (pt.type === 'dust') {
+                ctx.fillStyle = pt.color;
+                ctx.globalAlpha = alpha * 0.6;
+                ctx.beginPath();
+                ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
+                ctx.fill();
+            } else if (pt.type === 'debris') {
+                ctx.fillStyle = pt.color;
+                ctx.translate(pt.x, pt.y);
+                ctx.rotate(pt.rotation + globalTime * 3);
+                ctx.fillRect(-pt.size * 0.5, -pt.size * 0.5, pt.size, pt.size);
+            } else {
+                // Original confetti particles
+                ctx.fillStyle = pt.color;
+                ctx.beginPath();
+                ctx.arc(pt.x, pt.y, pt.size || 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            ctx.restore();
         }
+
+        // Draw popups (in world space)
+        drawPopups(ctx, p);
 
         ctx.restore(); // undo camera translate
 
-        // Height markers on the side
+        // Height indicator on the right side
+        drawHeightIndicator(ctx, p, width, isDark);
+
+        // Height markers on the left side
         ctx.fillStyle = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)';
         ctx.font = '10px sans-serif';
         ctx.textAlign = 'left';
@@ -596,7 +1069,7 @@
             for (var li = 0; li < MAX_MISSED; li++) {
                 heartStr += li < livesLeft ? '\u2764 ' : '\u2661 ';
             }
-            ctx.fillText(heartStr.trim(), width - 8, 24);
+            ctx.fillText(heartStr.trim(), width - 24, 24);
         }
 
         ctx.restore(); // undo clip and translate
@@ -619,6 +1092,7 @@
     function startGame(playerMode) {
         mode = playerMode;
         gameEnded = false;
+        globalTime = 0;
         players = [];
 
         if (mode === 1) {
@@ -660,6 +1134,8 @@
         lastTime = now;
 
         if (running) {
+            globalTime += dt;
+
             // Update
             for (var i = 0; i < players.length; i++) {
                 updatePlayer(players[i], dt);

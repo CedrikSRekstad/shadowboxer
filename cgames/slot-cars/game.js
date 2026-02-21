@@ -14,6 +14,13 @@
     var CAR_WIDTH = 10;
     var SAFE_SPEED_FACTOR = 14; // safeSpeed = sqrt(radius) * factor  (tuned)
 
+    // ── Visual Constants ──
+    var VIS_CAR_LENGTH = 24;
+    var VIS_CAR_WIDTH = 13;
+    var SMOKE_MAX = 200;
+    var SPEED_LINE_MAX = 80;
+    var SKID_TRAIL_MAX = 400;
+
     // ── State ──
     var mode = '1p';            // '1p' or '2p'
     var running = false;
@@ -27,6 +34,16 @@
     var skidMarks = [];         // persistent skid marks array
     var inputState = { p1: false, p2: false };
     var touchIds = { p1: null, p2: null };
+
+    // ── Visual particle arrays ──
+    var smokeParticles = [];
+    var speedLines = [];
+    var skidTrails = [[], []];  // per-car connected skid trails
+    var finishLineTime = 0;     // animation timer for finish line
+
+    // ── Track texture cache ──
+    var trackTextureCanvas = null;
+    var trackTextureDirty = true;
 
     // ── Track Definitions ──
     // Each track is an array of control points {x, y} in normalized 0-1 coords
@@ -298,6 +315,7 @@
         canvas.height = h;
         cw = w;
         ch = h;
+        trackTextureDirty = true;
     }
 
     // ── Game Init ──
@@ -308,6 +326,11 @@
         paused = false;
         running = true;
         skidMarks = [];
+        smokeParticles = [];
+        speedLines = [];
+        skidTrails = [[], []];
+        finishLineTime = 0;
+        trackTextureDirty = true;
 
         // Show game screen FIRST so container has dimensions
         GameShell.showScreen('game-screen');
@@ -391,6 +414,8 @@
     function update(dt) {
         if (!running || paused || gameOver) return;
 
+        finishLineTime += dt;
+
         for (var i = 0; i < cars.length; i++) {
             var car = cars[i];
 
@@ -401,6 +426,11 @@
                 car.speed = 0;
                 if (car.stalled <= 0) {
                     car.stalled = 0;
+                }
+                // End skid trail on stall
+                var trail = skidTrails[i];
+                if (trail.length > 0 && trail[trail.length - 1] !== null) {
+                    trail.push(null);
                 }
                 continue;
             }
@@ -444,6 +474,26 @@
                     });
                 }
 
+                // Burst of smoke on crash
+                for (var sp = 0; sp < 12; sp++) {
+                    smokeParticles.push({
+                        x: carX + (Math.random() - 0.5) * 10,
+                        y: carY + (Math.random() - 0.5) * 10,
+                        vx: (Math.random() - 0.5) * 40,
+                        vy: -Math.random() * 30 - 10,
+                        life: 0.6 + Math.random() * 0.5,
+                        maxLife: 1.1,
+                        alpha: 0.7,
+                        size: 4 + Math.random() * 5
+                    });
+                }
+
+                // End skid trail segment
+                var trail = skidTrails[i];
+                if (trail.length > 0 && trail[trail.length - 1] !== null) {
+                    trail.push(null);
+                }
+
                 CGameAudio.play('hit');
                 car.stalled = STALL_TIME;
                 car.stallFlash = STALL_TIME;
@@ -485,6 +535,68 @@
                     });
                 }
             }
+
+            // ── Visual: Skid trail (connected line) ──
+            if (car.speed > s.safeSpeed * 0.8 && s.radius < 250) {
+                var tpx = -s.dy;
+                var tpy = s.dx;
+                var tx = s.x + tpx * car.laneSign * LANE_OFFSET;
+                var ty = s.y + tpy * car.laneSign * LANE_OFFSET;
+                var intensity = Math.min(1, (car.speed / s.safeSpeed - 0.8) / 0.35);
+                skidTrails[i].push({ x: tx, y: ty, alpha: 0.15 + intensity * 0.35 });
+            } else {
+                // Break the trail
+                var trail = skidTrails[i];
+                if (trail.length > 0 && trail[trail.length - 1] !== null) {
+                    trail.push(null);
+                }
+            }
+
+            // ── Visual: Tire smoke near safe speed limit ──
+            if (car.speed > s.safeSpeed * 0.8 && s.radius < 300) {
+                var smokeIntensity = (car.speed / s.safeSpeed - 0.8) / 0.35;
+                smokeIntensity = Math.min(1, Math.max(0, smokeIntensity));
+                // More smoke = closer to flying off
+                if (Math.random() < smokeIntensity * 0.6) {
+                    var spx2 = -s.dy;
+                    var spy2 = s.dx;
+                    var sx = s.x + spx2 * car.laneSign * LANE_OFFSET;
+                    var sy = s.y + spy2 * car.laneSign * LANE_OFFSET;
+                    smokeParticles.push({
+                        x: sx + (Math.random() - 0.5) * 6,
+                        y: sy + (Math.random() - 0.5) * 6,
+                        vx: (Math.random() - 0.5) * 15,
+                        vy: -Math.random() * 20 - 5,
+                        life: 0.4 + Math.random() * 0.4,
+                        maxLife: 0.8,
+                        alpha: 0.2 + smokeIntensity * 0.3,
+                        size: 2 + Math.random() * 3
+                    });
+                }
+            }
+
+            // ── Visual: Speed lines on straights ──
+            if (car.speed > MAX_SPEED * 0.5 && s.radius > 200) {
+                var slIntensity = (car.speed - MAX_SPEED * 0.5) / (MAX_SPEED * 0.5);
+                if (Math.random() < slIntensity * 0.4) {
+                    var backDx = -s.dx;
+                    var backDy = -s.dy;
+                    var perpSlx = -s.dy;
+                    var perpSly = s.dx;
+                    var offset = (Math.random() - 0.5) * VIS_CAR_WIDTH * 1.2;
+                    speedLines.push({
+                        x: car.x + backDx * VIS_CAR_LENGTH * 0.5 + perpSlx * offset,
+                        y: car.y + backDy * VIS_CAR_LENGTH * 0.5 + perpSly * offset,
+                        dx: backDx,
+                        dy: backDy,
+                        length: 8 + Math.random() * 16 * slIntensity,
+                        life: 0.15 + Math.random() * 0.2,
+                        maxLife: 0.35,
+                        alpha: 0.3 + slIntensity * 0.4,
+                        carIndex: i
+                    });
+                }
+            }
         }
 
         // Fade old skid marks
@@ -497,6 +609,42 @@
         // Cap skid marks
         if (skidMarks.length > 500) {
             skidMarks.splice(0, skidMarks.length - 500);
+        }
+
+        // Update smoke particles
+        for (var i = smokeParticles.length - 1; i >= 0; i--) {
+            var p = smokeParticles[i];
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.life -= dt;
+            p.size += dt * 6;  // expand
+            p.alpha -= dt * 0.8;
+            if (p.life <= 0 || p.alpha <= 0) {
+                smokeParticles.splice(i, 1);
+            }
+        }
+        if (smokeParticles.length > SMOKE_MAX) {
+            smokeParticles.splice(0, smokeParticles.length - SMOKE_MAX);
+        }
+
+        // Update speed lines
+        for (var i = speedLines.length - 1; i >= 0; i--) {
+            var sl = speedLines[i];
+            sl.life -= dt;
+            sl.alpha -= dt * 2;
+            if (sl.life <= 0 || sl.alpha <= 0) {
+                speedLines.splice(i, 1);
+            }
+        }
+        if (speedLines.length > SPEED_LINE_MAX) {
+            speedLines.splice(0, speedLines.length - SPEED_LINE_MAX);
+        }
+
+        // Trim skid trails
+        for (var ci = 0; ci < 2; ci++) {
+            if (skidTrails[ci].length > SKID_TRAIL_MAX) {
+                skidTrails[ci].splice(0, skidTrails[ci].length - SKID_TRAIL_MAX);
+            }
         }
 
         updateCarPositions();
@@ -564,14 +712,26 @@
 
         var isDark = document.body.getAttribute('data-theme') !== 'light';
 
+        // Draw background terrain
+        drawBackground(isDark);
+
         // Draw track
         drawTrack(isDark);
 
-        // Draw skid marks
+        // Draw skid trails (connected lines)
+        drawSkidTrails(isDark);
+
+        // Draw skid marks (dots - legacy)
         drawSkidMarks(isDark);
+
+        // Draw speed lines
+        drawSpeedLines(isDark);
 
         // Draw finish line
         drawFinishLine(isDark);
+
+        // Draw smoke particles (behind cars)
+        drawSmoke(isDark);
 
         // Draw cars
         drawCars(isDark);
@@ -585,53 +745,176 @@
         }
     }
 
-    function drawTrack(isDark) {
+    // ── Background with grass/terrain gradient ──
+
+    function drawBackground(isDark) {
+        var grd = ctx.createRadialGradient(cw * 0.5, ch * 0.5, Math.min(cw, ch) * 0.15, cw * 0.5, ch * 0.5, Math.max(cw, ch) * 0.7);
+        if (isDark) {
+            grd.addColorStop(0, '#1a2a1a');
+            grd.addColorStop(0.5, '#152015');
+            grd.addColorStop(1, '#0d150d');
+        } else {
+            grd.addColorStop(0, '#8fbc8f');
+            grd.addColorStop(0.5, '#7aaa7a');
+            grd.addColorStop(1, '#6a9a6a');
+        }
+        ctx.fillStyle = grd;
+        ctx.fillRect(0, 0, cw, ch);
+
+        // Subtle grass texture - sparse small dots
+        ctx.globalAlpha = isDark ? 0.06 : 0.08;
+        // Use deterministic seed based on canvas size so it doesn't flicker
+        var seed = (cw * 7 + ch * 13) | 0;
+        for (var gi = 0; gi < 300; gi++) {
+            seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+            var gx = (seed % cw);
+            seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+            var gy = (seed % ch);
+            seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+            var gs = 1 + (seed % 3);
+            ctx.fillStyle = isDark ? '#3a5a3a' : '#5a8a5a';
+            ctx.fillRect(gx, gy, gs, gs);
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    // ── Build track texture (cached off-screen canvas) ──
+
+    function buildTrackTexture(isDark) {
+        if (!trackTextureDirty && trackTextureCanvas) return;
+        trackTextureDirty = false;
+
+        var tc = document.createElement('canvas');
+        tc.width = cw;
+        tc.height = ch;
+        var tctx = tc.getContext('2d');
+
         var samples = track.samples;
 
-        // Draw road surface (wide grey path)
-        ctx.beginPath();
-        ctx.moveTo(samples[0].x, samples[0].y);
-        for (var i = 1; i < samples.length; i++) {
-            ctx.lineTo(samples[i].x, samples[i].y);
-        }
-        ctx.closePath();
-        ctx.strokeStyle = isDark ? '#3a3a50' : '#b0b0c0';
-        ctx.lineWidth = TRACK_WIDTH;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.stroke();
+        // -- Asphalt base with lighter center --
+        // We draw the track in three layers: dark edges, medium, light center
 
-        // Draw white borders (outer)
-        ctx.beginPath();
-        ctx.moveTo(samples[0].x, samples[0].y);
+        // Layer 1: Outer dark edge (full width + border)
+        tctx.beginPath();
+        tctx.moveTo(samples[0].x, samples[0].y);
         for (var i = 1; i < samples.length; i++) {
-            ctx.lineTo(samples[i].x, samples[i].y);
+            tctx.lineTo(samples[i].x, samples[i].y);
         }
-        ctx.closePath();
-        ctx.strokeStyle = isDark ? '#606080' : '#888898';
-        ctx.lineWidth = TRACK_WIDTH + 4;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.globalCompositeOperation = 'destination-over';
-        ctx.stroke();
-        ctx.globalCompositeOperation = 'source-over';
+        tctx.closePath();
+        tctx.strokeStyle = isDark ? '#28283a' : '#787888';
+        tctx.lineWidth = TRACK_WIDTH + 6;
+        tctx.lineCap = 'round';
+        tctx.lineJoin = 'round';
+        tctx.stroke();
 
-        // Draw lane divider (dashed center line)
-        ctx.beginPath();
-        ctx.setLineDash([8, 12]);
-        ctx.moveTo(samples[0].x, samples[0].y);
+        // Layer 2: Main asphalt (dark)
+        tctx.beginPath();
+        tctx.moveTo(samples[0].x, samples[0].y);
         for (var i = 1; i < samples.length; i++) {
-            ctx.lineTo(samples[i].x, samples[i].y);
+            tctx.lineTo(samples[i].x, samples[i].y);
         }
-        ctx.closePath();
-        ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-        ctx.setLineDash([]);
+        tctx.closePath();
+        tctx.strokeStyle = isDark ? '#333348' : '#9a9aaa';
+        tctx.lineWidth = TRACK_WIDTH;
+        tctx.lineCap = 'round';
+        tctx.lineJoin = 'round';
+        tctx.stroke();
+
+        // Layer 3: Lighter center strip
+        tctx.beginPath();
+        tctx.moveTo(samples[0].x, samples[0].y);
+        for (var i = 1; i < samples.length; i++) {
+            tctx.lineTo(samples[i].x, samples[i].y);
+        }
+        tctx.closePath();
+        tctx.strokeStyle = isDark ? '#3e3e55' : '#b0b0c0';
+        tctx.lineWidth = TRACK_WIDTH * 0.55;
+        tctx.lineCap = 'round';
+        tctx.lineJoin = 'round';
+        tctx.stroke();
+
+        // Asphalt grain/noise texture
+        // Use clip to only put noise on the track
+        tctx.save();
+        tctx.beginPath();
+        // Build outline path for clipping
+        for (var i = 0; i < samples.length; i++) {
+            var s = samples[i];
+            var px = s.x + (-s.dy) * (TRACK_WIDTH / 2 + 2);
+            var py = s.y + (s.dx) * (TRACK_WIDTH / 2 + 2);
+            if (i === 0) tctx.moveTo(px, py);
+            else tctx.lineTo(px, py);
+        }
+        for (var i = samples.length - 1; i >= 0; i--) {
+            var s = samples[i];
+            var px = s.x - (-s.dy) * (TRACK_WIDTH / 2 + 2);
+            var py = s.y - (s.dx) * (TRACK_WIDTH / 2 + 2);
+            tctx.lineTo(px, py);
+        }
+        tctx.closePath();
+        tctx.clip();
+
+        // Scatter random alpha dots for grain
+        var noiseSeed = 42;
+        for (var ni = 0; ni < 1500; ni++) {
+            noiseSeed = (noiseSeed * 1103515245 + 12345) & 0x7fffffff;
+            var nx = (noiseSeed % cw);
+            noiseSeed = (noiseSeed * 1103515245 + 12345) & 0x7fffffff;
+            var ny = (noiseSeed % ch);
+            noiseSeed = (noiseSeed * 1103515245 + 12345) & 0x7fffffff;
+            var na = ((noiseSeed % 40) + 10) / 255;
+            tctx.fillStyle = isDark
+                ? 'rgba(180,180,200,' + na + ')'
+                : 'rgba(60,60,80,' + na + ')';
+            tctx.fillRect(nx, ny, 1, 1);
+        }
+        tctx.restore();
+
+        // White edge markings (dashed lines along track edges)
+        var edgeOffsets = [TRACK_WIDTH / 2 + 1, -(TRACK_WIDTH / 2 + 1)];
+        tctx.setLineDash([10, 14]);
+        tctx.lineWidth = 1.5;
+        tctx.strokeStyle = isDark ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.55)';
+        for (var ei = 0; ei < edgeOffsets.length; ei++) {
+            tctx.beginPath();
+            for (var i = 0; i < samples.length; i++) {
+                var s = samples[i];
+                var off = edgeOffsets[ei];
+                var ex = s.x + (-s.dy) * off;
+                var ey = s.y + (s.dx) * off;
+                if (i === 0) tctx.moveTo(ex, ey);
+                else tctx.lineTo(ex, ey);
+            }
+            tctx.closePath();
+            tctx.stroke();
+        }
+        tctx.setLineDash([]);
+
+        // Lane divider (dashed center line)
+        tctx.beginPath();
+        tctx.setLineDash([8, 12]);
+        tctx.moveTo(samples[0].x, samples[0].y);
+        for (var i = 1; i < samples.length; i++) {
+            tctx.lineTo(samples[i].x, samples[i].y);
+        }
+        tctx.closePath();
+        tctx.strokeStyle = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.35)';
+        tctx.lineWidth = 1.5;
+        tctx.stroke();
+        tctx.setLineDash([]);
+
+        trackTextureCanvas = tc;
+    }
+
+    function drawTrack(isDark) {
+        buildTrackTexture(isDark);
+        if (trackTextureCanvas) {
+            ctx.drawImage(trackTextureCanvas, 0, 0);
+        }
     }
 
     function drawFinishLine(isDark) {
-        // Draw checkerboard finish line at the start position
+        // Draw animated checkerboard finish line at the start position
         var s = track.samples[0];
         var perpX = -s.dy;
         var perpY = s.dx;
@@ -643,27 +926,90 @@
         var y2 = s.y - perpY * halfW;
 
         ctx.save();
+
+        // Base line
         ctx.beginPath();
         ctx.moveTo(x1, y1);
         ctx.lineTo(x2, y2);
         ctx.strokeStyle = isDark ? '#ffffff' : '#222222';
-        ctx.lineWidth = 5;
+        ctx.lineWidth = 7;
         ctx.stroke();
 
-        // Checkerboard pattern on the line
-        var steps = 8;
-        for (var i = 0; i < steps; i++) {
-            var t = i / steps;
-            var px = x1 + (x2 - x1) * t;
-            var py = y1 + (y2 - y1) * t;
-            if (i % 2 === 0) {
-                ctx.fillStyle = isDark ? '#ffffff' : '#000000';
-            } else {
-                ctx.fillStyle = isDark ? '#333344' : '#cccccc';
+        // Animated checkerboard pattern
+        var steps = 10;
+        var shimmerPhase = finishLineTime * 3; // controls flutter speed
+        for (var row = 0; row < 2; row++) {
+            for (var i = 0; i < steps; i++) {
+                var t = i / steps;
+                var px = x1 + (x2 - x1) * t;
+                var py = y1 + (y2 - y1) * t;
+                // Offset for row
+                var rowOff = (row - 0.5) * 4;
+                var rx = px + s.dx * rowOff;
+                var ry = py + s.dy * rowOff;
+
+                // Shimmer: slight alpha wave
+                var shimmer = 0.85 + 0.15 * Math.sin(shimmerPhase + i * 0.7 + row * Math.PI);
+                var isWhite = (i + row) % 2 === 0;
+
+                if (isWhite) {
+                    ctx.fillStyle = isDark
+                        ? 'rgba(255,255,255,' + shimmer + ')'
+                        : 'rgba(255,255,255,' + shimmer + ')';
+                } else {
+                    ctx.fillStyle = isDark
+                        ? 'rgba(20,20,35,' + shimmer + ')'
+                        : 'rgba(0,0,0,' + shimmer + ')';
+                }
+
+                // Slight size flutter
+                var sizeFlutter = 3.2 + 0.3 * Math.sin(shimmerPhase * 1.5 + i * 1.1);
+                ctx.fillRect(rx - sizeFlutter, ry - sizeFlutter, sizeFlutter * 2, sizeFlutter * 2);
             }
-            ctx.fillRect(px - 3, py - 3, 6, 6);
         }
         ctx.restore();
+    }
+
+    function drawSkidTrails(isDark) {
+        // Connected line trails per car
+        var trailColors = [
+            isDark ? 'rgba(40,40,40,' : 'rgba(30,30,30,',
+            isDark ? 'rgba(40,40,40,' : 'rgba(30,30,30,'
+        ];
+
+        for (var ci = 0; ci < 2; ci++) {
+            var trail = skidTrails[ci];
+            if (trail.length < 2) continue;
+
+            ctx.lineWidth = 2.5;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            var inSegment = false;
+            ctx.beginPath();
+            for (var ti = 0; ti < trail.length; ti++) {
+                var pt = trail[ti];
+                if (pt === null) {
+                    // End current segment, stroke it
+                    if (inSegment) {
+                        ctx.stroke();
+                        ctx.beginPath();
+                        inSegment = false;
+                    }
+                    continue;
+                }
+                if (!inSegment) {
+                    ctx.strokeStyle = trailColors[ci] + Math.min(pt.alpha, 0.45) + ')';
+                    ctx.moveTo(pt.x, pt.y);
+                    inSegment = true;
+                } else {
+                    ctx.lineTo(pt.x, pt.y);
+                }
+            }
+            if (inSegment) {
+                ctx.stroke();
+            }
+        }
     }
 
     function drawSkidMarks(isDark) {
@@ -671,16 +1017,61 @@
             var sm = skidMarks[i];
             ctx.beginPath();
             ctx.arc(sm.x, sm.y, sm.size, 0, Math.PI * 2);
-            var baseColor = isDark ? '200,200,200' : '60,60,60';
-            ctx.fillStyle = 'rgba(' + baseColor + ',' + sm.alpha + ')';
+            var baseColor = isDark ? '50,50,50' : '30,30,30';
+            ctx.fillStyle = 'rgba(' + baseColor + ',' + (sm.alpha * 0.7) + ')';
             ctx.fill();
+        }
+    }
+
+    function drawSmoke(isDark) {
+        for (var i = 0; i < smokeParticles.length; i++) {
+            var p = smokeParticles[i];
+            var a = Math.max(0, p.alpha);
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, Math.max(0, p.size), 0, Math.PI * 2);
+            if (isDark) {
+                ctx.fillStyle = 'rgba(180,180,195,' + (a * 0.5) + ')';
+            } else {
+                ctx.fillStyle = 'rgba(160,160,170,' + (a * 0.6) + ')';
+            }
+            ctx.fill();
+        }
+    }
+
+    function drawSpeedLines(isDark) {
+        var carColors = [
+            isDark ? [0, 180, 255] : [37, 99, 235],
+            isDark ? [255, 68, 102] : [233, 69, 96]
+        ];
+
+        for (var i = 0; i < speedLines.length; i++) {
+            var sl = speedLines[i];
+            var a = Math.max(0, sl.alpha);
+            var col = carColors[sl.carIndex];
+            ctx.beginPath();
+            ctx.moveTo(sl.x, sl.y);
+            ctx.lineTo(sl.x + sl.dx * sl.length, sl.y + sl.dy * sl.length);
+            ctx.strokeStyle = 'rgba(' + col[0] + ',' + col[1] + ',' + col[2] + ',' + (a * 0.4) + ')';
+            ctx.lineWidth = 1.5;
+            ctx.lineCap = 'round';
+            ctx.stroke();
         }
     }
 
     function drawCars(isDark) {
         var colors = [
-            { body: isDark ? '#00b4ff' : '#2563eb', top: isDark ? '#42d4ff' : '#60a5fa' },
-            { body: isDark ? '#ff4466' : '#e94560', top: isDark ? '#ff7799' : '#ff7799' }
+            {
+                bodyDark: isDark ? '#005a99' : '#1a4fa0',
+                bodyLight: isDark ? '#00c8ff' : '#3b8bff',
+                accent: isDark ? '#42d4ff' : '#60a5fa',
+                windshield: isDark ? 'rgba(150,220,255,0.4)' : 'rgba(180,220,255,0.6)'
+            },
+            {
+                bodyDark: isDark ? '#991133' : '#a02040',
+                bodyLight: isDark ? '#ff5577' : '#ff6688',
+                accent: isDark ? '#ff99aa' : '#ff8899',
+                windshield: isDark ? 'rgba(255,180,190,0.4)' : 'rgba(255,200,210,0.6)'
+            }
         ];
 
         for (var i = 0; i < cars.length; i++) {
@@ -692,31 +1083,116 @@
                 continue; // skip drawing (flash effect)
             }
 
-            ctx.save();
-            ctx.translate(car.x, car.y);
-            ctx.rotate(car.angle);
-
-            // Car body (rectangle)
-            ctx.fillStyle = col.body;
-            ctx.fillRect(-CAR_LENGTH / 2, -CAR_WIDTH / 2, CAR_LENGTH, CAR_WIDTH);
-
-            // Car top highlight
-            ctx.fillStyle = col.top;
-            ctx.fillRect(-CAR_LENGTH / 2 + 3, -CAR_WIDTH / 2 + 2, CAR_LENGTH - 6, CAR_WIDTH - 4);
-
-            // Windshield
-            ctx.fillStyle = isDark ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.5)';
-            ctx.fillRect(CAR_LENGTH / 2 - 5, -CAR_WIDTH / 2 + 1, 3, CAR_WIDTH - 2);
-
-            // Headlights when throttle active
+            // Get throttle state for headlights
             var throttle = false;
             if (car.isAI) throttle = car.aiThrottle;
             else if (car.player === 0) throttle = inputState.p1;
             else throttle = inputState.p2;
 
+            ctx.save();
+            ctx.translate(car.x, car.y);
+            ctx.rotate(car.angle);
+
+            var hl = VIS_CAR_LENGTH;
+            var hw = VIS_CAR_WIDTH;
+
+            // -- Shadow --
+            ctx.fillStyle = 'rgba(0,0,0,0.2)';
+            ctx.beginPath();
+            ctx.ellipse(1, 2, hl / 2 + 1, hw / 2 + 1, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // -- Body gradient (front to back) --
+            var bodyGrad = ctx.createLinearGradient(-hl / 2, 0, hl / 2, 0);
+            bodyGrad.addColorStop(0, col.bodyDark);
+            bodyGrad.addColorStop(0.4, col.bodyLight);
+            bodyGrad.addColorStop(0.7, col.bodyLight);
+            bodyGrad.addColorStop(1, col.bodyDark);
+
+            // Rounded car body
+            var r = 3;
+            ctx.fillStyle = bodyGrad;
+            ctx.beginPath();
+            ctx.moveTo(-hl / 2 + r, -hw / 2);
+            ctx.lineTo(hl / 2 - r, -hw / 2);
+            ctx.quadraticCurveTo(hl / 2, -hw / 2, hl / 2, -hw / 2 + r);
+            ctx.lineTo(hl / 2, hw / 2 - r);
+            ctx.quadraticCurveTo(hl / 2, hw / 2, hl / 2 - r, hw / 2);
+            ctx.lineTo(-hl / 2 + r, hw / 2);
+            ctx.quadraticCurveTo(-hl / 2, hw / 2, -hl / 2, hw / 2 - r);
+            ctx.lineTo(-hl / 2, -hw / 2 + r);
+            ctx.quadraticCurveTo(-hl / 2, -hw / 2, -hl / 2 + r, -hw / 2);
+            ctx.closePath();
+            ctx.fill();
+
+            // Body outline
+            ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+            ctx.lineWidth = 0.7;
+            ctx.stroke();
+
+            // -- Hood section (front third, lighter) --
+            ctx.fillStyle = col.accent;
+            ctx.globalAlpha = 0.3;
+            ctx.fillRect(hl / 2 - hl * 0.35, -hw / 2 + 2, hl * 0.2, hw - 4);
+            ctx.globalAlpha = 1;
+
+            // -- Windshield (angled glass) --
+            ctx.fillStyle = col.windshield;
+            ctx.beginPath();
+            var wsX = hl / 2 - hl * 0.32;
+            ctx.moveTo(wsX, -hw / 2 + 2);
+            ctx.lineTo(wsX + 3, -hw / 2 + 2);
+            ctx.lineTo(wsX + 2.5, hw / 2 - 2);
+            ctx.lineTo(wsX, hw / 2 - 2);
+            ctx.closePath();
+            ctx.fill();
+
+            // -- Rear windshield --
+            ctx.fillStyle = col.windshield;
+            ctx.globalAlpha = 0.5;
+            ctx.fillRect(-hl / 2 + 3, -hw / 2 + 2.5, 2.5, hw - 5);
+            ctx.globalAlpha = 1;
+
+            // -- Taillights (red dots at back) --
+            ctx.fillStyle = 'rgba(255,50,50,0.7)';
+            ctx.fillRect(-hl / 2, -hw / 2 + 1, 2, 2.5);
+            ctx.fillRect(-hl / 2, hw / 2 - 3.5, 2, 2.5);
+
+            // -- Headlights --
             if (throttle && car.stalled <= 0) {
-                ctx.fillStyle = 'rgba(255,255,200,0.8)';
-                ctx.fillRect(CAR_LENGTH / 2, -2, 3, 4);
+                // Glow effect
+                ctx.save();
+                ctx.shadowColor = 'rgba(255,255,180,0.8)';
+                ctx.shadowBlur = 12;
+                ctx.fillStyle = 'rgba(255,255,200,0.9)';
+                ctx.beginPath();
+                ctx.arc(hl / 2 + 1, -hw / 2 + 2.5, 2.2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(hl / 2 + 1, hw / 2 - 2.5, 2.2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+
+                // Headlight beam (subtle cone)
+                ctx.globalAlpha = 0.08;
+                ctx.fillStyle = '#ffffcc';
+                ctx.beginPath();
+                ctx.moveTo(hl / 2, -hw / 2 + 1);
+                ctx.lineTo(hl / 2 + 18, -hw * 0.8);
+                ctx.lineTo(hl / 2 + 18, hw * 0.8);
+                ctx.lineTo(hl / 2, hw / 2 - 1);
+                ctx.closePath();
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            } else {
+                // Dim headlights when not throttling
+                ctx.fillStyle = 'rgba(255,255,200,0.3)';
+                ctx.beginPath();
+                ctx.arc(hl / 2 + 0.5, -hw / 2 + 2.5, 1.5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(hl / 2 + 0.5, hw / 2 - 2.5, 1.5, 0, Math.PI * 2);
+                ctx.fill();
             }
 
             ctx.restore();
@@ -734,25 +1210,47 @@
 
             // Position near the car
             var bx = car.x - barW / 2;
-            var by = car.y - CAR_WIDTH - 8;
+            var by = car.y - VIS_CAR_WIDTH - 10;
 
-            // Background
-            ctx.fillStyle = isDark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)';
-            ctx.fillRect(bx, by, barW, barH);
+            // Background with slight rounding
+            ctx.fillStyle = isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)';
+            ctx.beginPath();
+            ctx.moveTo(bx + 2, by);
+            ctx.lineTo(bx + barW - 2, by);
+            ctx.quadraticCurveTo(bx + barW, by, bx + barW, by + 2);
+            ctx.lineTo(bx + barW, by + barH - 2);
+            ctx.quadraticCurveTo(bx + barW, by + barH, bx + barW - 2, by + barH);
+            ctx.lineTo(bx + 2, by + barH);
+            ctx.quadraticCurveTo(bx, by + barH, bx, by + barH - 2);
+            ctx.lineTo(bx, by + 2);
+            ctx.quadraticCurveTo(bx, by, bx + 2, by);
+            ctx.closePath();
+            ctx.fill();
 
-            // Fill color based on speed vs safe speed
+            // Gradient fill based on speed vs safe speed
             var ratio = (s.safeSpeed > 0) ? car.speed / s.safeSpeed : 0;
-            var fillColor;
-            if (ratio < 0.7) {
-                fillColor = '#538d4e'; // green - safe
-            } else if (ratio < 0.95) {
-                fillColor = '#b59f3b'; // yellow - caution
-            } else {
-                fillColor = '#e94560'; // red - danger
+            var fillW = barW * pct;
+            if (fillW > 0.5) {
+                var grd = ctx.createLinearGradient(bx, by, bx + barW, by);
+                grd.addColorStop(0, '#2ecc40');      // green
+                grd.addColorStop(0.5, '#f1c40f');     // yellow
+                grd.addColorStop(0.85, '#e94560');     // red
+                grd.addColorStop(1, '#ff1744');        // hot red
+
+                ctx.fillStyle = grd;
+                ctx.fillRect(bx, by, fillW, barH);
             }
 
-            ctx.fillStyle = fillColor;
-            ctx.fillRect(bx, by, barW * pct, barH);
+            // Danger glow when near or above safe speed
+            if (ratio > 0.85) {
+                var glowIntensity = Math.min(1, (ratio - 0.85) / 0.3);
+                ctx.save();
+                ctx.shadowColor = 'rgba(255,30,60,' + (glowIntensity * 0.8) + ')';
+                ctx.shadowBlur = 6 + glowIntensity * 6;
+                ctx.fillStyle = 'rgba(255,50,70,' + (glowIntensity * 0.3) + ')';
+                ctx.fillRect(bx, by, fillW, barH);
+                ctx.restore();
+            }
 
             // Border
             ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)';

@@ -1,4 +1,4 @@
-/* === Gravity Run - Game Logic === */
+/* === Gravity Run - Game Logic (Visually Enhanced) === */
 (function () {
     'use strict';
 
@@ -17,12 +17,20 @@
     var OBSTACLE_GAP_MAX = 320;
     var SAFE_CORRIDOR = 80;    // guaranteed safe vertical gap
 
-    // Parallax star layers
+    // Parallax star layers (3 layers at different speeds)
     var STAR_LAYERS = [
-        { count: 30, speed: 0.15, size: 1, alpha: 0.25 },
-        { count: 20, speed: 0.3, size: 1.5, alpha: 0.4 },
-        { count: 10, speed: 0.5, size: 2, alpha: 0.6 }
+        { count: 40, speed: 0.12, sizeMin: 0.5, sizeMax: 1.5, alpha: 0.2 },
+        { count: 25, speed: 0.3, sizeMin: 1, sizeMax: 2.5, alpha: 0.4 },
+        { count: 12, speed: 0.55, sizeMin: 1.5, sizeMax: 3, alpha: 0.65 }
     ];
+
+    // Nebula configuration
+    var NEBULA_COUNT = 4;
+
+    // Shield power-up settings
+    var SHIELD_RADIUS = 10;
+    var SHIELD_SPAWN_CHANCE = 0.08; // chance per obstacle group
+    var SHIELD_MIN_INTERVAL = 2500; // min distance between shield spawns
 
     // ─── State ───────────────────────────────────────────────────
     var canvas, ctx;
@@ -33,6 +41,8 @@
     var coins = [];
     var particles = [];
     var stars = [];
+    var nebulae = [];
+    var shields = [];          // shield pickups on the field
     var scrollSpeed = BASE_SPEED;
     var distance = 0;
     var nextObstacleX = 0;
@@ -41,6 +51,8 @@
     var animFrameId = null;
     var lastTime = 0;
     var splitY = 0;            // y divider for 2P
+    var globalTime = 0;        // accumulated time for animations
+    var lastShieldDist = 0;    // distance tracker for shield spawn spacing
 
     // Theme-aware colours (recalculated each frame from CSS vars)
     var colors = {};
@@ -59,6 +71,16 @@
         colors.danger = s.getPropertyValue('--danger').trim() || '#e94560';
     }
 
+    // ─── Utility: parse hex color to {r,g,b} ────────────────────
+    function hexToRgb(hex) {
+        hex = hex.replace('#', '');
+        if (hex.length === 3) {
+            hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+        }
+        var num = parseInt(hex, 16);
+        return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+    }
+
     // ─── Player Object ──────────────────────────────────────────
     function createPlayer(index, laneTop, laneH) {
         return {
@@ -73,7 +95,9 @@
             laneTop: laneTop,
             laneH: laneH,
             trail: [],
-            flipCooldown: 0
+            flipCooldown: 0,
+            hasShield: false,     // shield power-up state
+            shieldTimer: 0        // visual animation timer for shield
         };
     }
 
@@ -146,6 +170,14 @@
         return { x: x, y: cy, collected: false };
     }
 
+    // ─── Shield Pickup Generation ────────────────────────────────
+    function generateShield(x, laneTop, laneH) {
+        var ceilY = laneTop + BAND_H + SHIELD_RADIUS + 10;
+        var floorY = laneTop + laneH - BAND_H - SHIELD_RADIUS - 10;
+        var cy = ceilY + Math.random() * (floorY - ceilY);
+        return { x: x, y: cy, collected: false, laneTop: laneTop, laneH: laneH, bobPhase: Math.random() * Math.PI * 2 };
+    }
+
     // ─── Stars / Parallax ───────────────────────────────────────
     function initStars(laneTop, laneH) {
         var result = [];
@@ -155,13 +187,41 @@
                     x: Math.random() * CANVAS_W,
                     y: laneTop + BAND_H + Math.random() * (laneH - BAND_H * 2),
                     speed: layer.speed,
-                    size: layer.size,
-                    alpha: layer.alpha,
+                    size: layer.sizeMin + Math.random() * (layer.sizeMax - layer.sizeMin),
+                    alpha: layer.alpha * (0.6 + Math.random() * 0.4),
+                    twinklePhase: Math.random() * Math.PI * 2,
+                    twinkleSpeed: 1 + Math.random() * 2,
                     laneTop: laneTop,
                     laneH: laneH
                 });
             }
         });
+        return result;
+    }
+
+    // ─── Nebulae (colored radial gradients that drift slowly) ───
+    function initNebulae(laneTop, laneH) {
+        var result = [];
+        var nebulaColors = [
+            { r: 80, g: 0, b: 180 },   // purple
+            { r: 0, g: 100, b: 200 },   // blue
+            { r: 180, g: 0, b: 80 },    // magenta
+            { r: 0, g: 160, b: 140 }    // teal
+        ];
+        for (var i = 0; i < NEBULA_COUNT; i++) {
+            var c = nebulaColors[i % nebulaColors.length];
+            result.push({
+                x: Math.random() * CANVAS_W,
+                y: laneTop + BAND_H + Math.random() * (laneH - BAND_H * 2),
+                radius: 80 + Math.random() * 120,
+                color: c,
+                alpha: 0.03 + Math.random() * 0.03,
+                driftVx: (Math.random() - 0.5) * 8,
+                driftVy: (Math.random() - 0.5) * 4,
+                laneTop: laneTop,
+                laneH: laneH
+            });
+        }
         return result;
     }
 
@@ -176,7 +236,85 @@
                 life: 0.3 + Math.random() * 0.4,
                 maxLife: 0.3 + Math.random() * 0.4,
                 size: 2 + Math.random() * 3,
-                color: color
+                color: color,
+                type: 'default'
+            });
+        }
+    }
+
+    // Enhanced death explosion particles (with gravity and varied sizes)
+    function spawnDeathExplosion(x, y, color) {
+        for (var i = 0; i < 25; i++) {
+            var angle = (Math.PI * 2 / 25) * i + (Math.random() - 0.5) * 0.4;
+            var speed = 100 + Math.random() * 250;
+            particles.push({
+                x: x,
+                y: y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                gravity: 300 + Math.random() * 200,
+                life: 0.5 + Math.random() * 0.6,
+                maxLife: 0.5 + Math.random() * 0.6,
+                size: 2 + Math.random() * 5,
+                color: color,
+                type: 'explosion'
+            });
+        }
+        // A few bright core sparks
+        for (var j = 0; j < 8; j++) {
+            particles.push({
+                x: x + (Math.random() - 0.5) * 6,
+                y: y + (Math.random() - 0.5) * 6,
+                vx: (Math.random() - 0.5) * 150,
+                vy: (Math.random() - 0.5) * 150,
+                gravity: 0,
+                life: 0.2 + Math.random() * 0.3,
+                maxLife: 0.2 + Math.random() * 0.3,
+                size: 3 + Math.random() * 4,
+                color: '#ffffff',
+                type: 'spark'
+            });
+        }
+    }
+
+    // Coin collect sparkle particles
+    function spawnCoinSparkle(x, y) {
+        var sparkColors = ['#ffd700', '#ffec80', '#fff6cc', '#ffffff'];
+        for (var i = 0; i < 10; i++) {
+            var angle = (Math.PI * 2 / 10) * i;
+            var speed = 60 + Math.random() * 100;
+            particles.push({
+                x: x,
+                y: y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                gravity: 80,
+                life: 0.3 + Math.random() * 0.35,
+                maxLife: 0.3 + Math.random() * 0.35,
+                size: 1.5 + Math.random() * 3,
+                color: sparkColors[Math.floor(Math.random() * sparkColors.length)],
+                type: 'sparkle'
+            });
+        }
+    }
+
+    // Shield pop burst
+    function spawnShieldPop(x, y, pColor) {
+        var shieldColors = ['#44ffcc', '#88ffdd', '#aaffee', pColor];
+        for (var i = 0; i < 18; i++) {
+            var angle = (Math.PI * 2 / 18) * i;
+            var speed = 80 + Math.random() * 160;
+            particles.push({
+                x: x,
+                y: y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                gravity: 60,
+                life: 0.4 + Math.random() * 0.3,
+                maxLife: 0.4 + Math.random() * 0.3,
+                size: 2 + Math.random() * 4,
+                color: shieldColors[Math.floor(Math.random() * shieldColors.length)],
+                type: 'sparkle'
             });
         }
     }
@@ -186,20 +324,25 @@
         readColors();
         scrollSpeed = BASE_SPEED;
         distance = 0;
+        globalTime = 0;
+        lastShieldDist = 0;
         obstacles = [];
         coins = [];
         particles = [];
+        shields = [];
         players = [];
 
         if (mode === 1) {
             splitY = 0;
             players.push(createPlayer(0, 0, CANVAS_H));
             stars = initStars(0, CANVAS_H);
+            nebulae = initNebulae(0, CANVAS_H);
         } else {
             splitY = Math.floor(CANVAS_H / 2);
             players.push(createPlayer(0, 0, splitY));
             players.push(createPlayer(1, splitY, CANVAS_H - splitY));
             stars = initStars(0, splitY).concat(initStars(splitY, CANVAS_H - splitY));
+            nebulae = initNebulae(0, splitY).concat(initNebulae(splitY, CANVAS_H - splitY));
         }
 
         nextObstacleX = CANVAS_W + 200;
@@ -345,6 +488,7 @@
         if (dt > 0.05) dt = 0.05; // cap at 50ms
 
         readColors();
+        globalTime += dt;
 
         if (state === 'countdown') {
             updateCountdown(dt);
@@ -403,13 +547,15 @@
             p.distance = distance;
         });
 
-        // Scroll obstacles & coins
+        // Scroll obstacles & coins & shields
         obstacles.forEach(function (o) { o.x -= scrollDx; });
         coins.forEach(function (c) { c.x -= scrollDx; });
+        shields.forEach(function (s) { s.x -= scrollDx; });
 
-        // Remove off-screen obstacles/coins
+        // Remove off-screen obstacles/coins/shields
         obstacles = obstacles.filter(function (o) { return o.x + o.w > -50; });
         coins = coins.filter(function (c) { return c.x > -50; });
+        shields = shields.filter(function (s) { return s.x > -50 && !s.collected; });
 
         // Generate new content ahead
         var farthestObs = 0;
@@ -426,6 +572,11 @@
                 obs.forEach(function (o) { obstacles.push(o); });
                 if (Math.random() < 0.5) {
                     coins.push(generateCoin(nx - 30 - Math.random() * 50, p.laneTop, p.laneH));
+                }
+                // Shield spawn chance
+                if (!p.hasShield && (distance - lastShieldDist) > SHIELD_MIN_INTERVAL && Math.random() < SHIELD_SPAWN_CHANCE) {
+                    shields.push(generateShield(nx - 20 - Math.random() * 40, p.laneTop, p.laneH));
+                    lastShieldDist = distance;
                 }
             });
             farthestObs = nx + 40;
@@ -446,13 +597,38 @@
             }
         });
 
-        // Update particles
+        // Update nebulae (slow drift)
+        nebulae.forEach(function (n) {
+            n.x -= scrollDx * 0.05; // very slow parallax
+            n.x += n.driftVx * dt;
+            n.y += n.driftVy * dt;
+            // Wrap around
+            if (n.x < -n.radius) n.x += CANVAS_W + n.radius * 2;
+            if (n.x > CANVAS_W + n.radius) n.x -= CANVAS_W + n.radius * 2;
+            // Keep in lane vertically
+            var minY = n.laneTop + BAND_H;
+            var maxY = n.laneTop + n.laneH - BAND_H;
+            if (n.y < minY) { n.y = minY; n.driftVy = Math.abs(n.driftVy); }
+            if (n.y > maxY) { n.y = maxY; n.driftVy = -Math.abs(n.driftVy); }
+        });
+
+        // Update particles (with gravity for explosion types)
         particles.forEach(function (pt) {
             pt.x += pt.vx * dt;
             pt.y += pt.vy * dt;
+            if (pt.gravity) {
+                pt.vy += pt.gravity * dt;
+            }
             pt.life -= dt;
         });
         particles = particles.filter(function (pt) { return pt.life > 0; });
+
+        // Update shield timers on players
+        players.forEach(function (p) {
+            if (p.hasShield) {
+                p.shieldTimer += dt;
+            }
+        });
 
         // Update HUD
         updateHUD();
@@ -517,6 +693,17 @@
 
             if (px + pw > o.x + 3 && px < o.x + o.w - 3 &&
                 py + ph > o.y + 3 && py < o.y + o.h - 3) {
+                if (p.hasShield) {
+                    // Shield absorbs the hit
+                    p.hasShield = false;
+                    p.shieldTimer = 0;
+                    var pColor = p.index === 0 ? colors.p1 : colors.p2;
+                    spawnShieldPop(p.x + PLAYER_SIZE / 2, p.y + PLAYER_SIZE / 2, pColor);
+                    CGameAudio.play('score'); // reuse score sound for shield pop
+                    // Remove the obstacle that was hit
+                    obstacles.splice(i, 1);
+                    return;
+                }
                 killPlayer(p);
                 return;
             }
@@ -537,7 +724,26 @@
                 c.collected = true;
                 p.coins++;
                 CGameAudio.play('score');
-                spawnParticles(c.x, c.y, '#ffd700', 6);
+                spawnCoinSparkle(c.x, c.y);
+            }
+        }
+
+        // Shield pickup collection
+        for (var k = 0; k < shields.length; k++) {
+            var s = shields[k];
+            if (s.collected) continue;
+            if (s.y < p.laneTop || s.y > p.laneTop + p.laneH) continue;
+
+            var scx = px + pw / 2;
+            var scy = py + ph / 2;
+            var sdx = scx - s.x;
+            var sdy = scy - s.y;
+            if (Math.sqrt(sdx * sdx + sdy * sdy) < SHIELD_RADIUS + pw / 2) {
+                s.collected = true;
+                p.hasShield = true;
+                p.shieldTimer = 0;
+                CGameAudio.play('score');
+                spawnParticles(s.x, s.y, '#44ffcc', 8);
             }
         }
     }
@@ -545,7 +751,8 @@
     function killPlayer(p) {
         p.alive = false;
         CGameAudio.play('hit');
-        spawnParticles(p.x + PLAYER_SIZE / 2, p.y + PLAYER_SIZE / 2, colors.danger, 15);
+        var pColor = p.index === 0 ? colors.p1 : colors.p2;
+        spawnDeathExplosion(p.x + PLAYER_SIZE / 2, p.y + PLAYER_SIZE / 2, pColor);
     }
 
     // ─── HUD ────────────────────────────────────────────────────
@@ -609,28 +816,74 @@
         ctx.fillStyle = colors.bg;
         ctx.fillRect(0, laneTop, CANVAS_W, laneH);
 
-        // Stars / parallax
+        // ─── Nebula layer (behind stars) ────────────────────────
+        nebulae.forEach(function (n) {
+            if (n.laneTop !== player.laneTop) return;
+            var grad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.radius);
+            grad.addColorStop(0, 'rgba(' + n.color.r + ',' + n.color.g + ',' + n.color.b + ',' + (n.alpha * 1.5) + ')');
+            grad.addColorStop(0.5, 'rgba(' + n.color.r + ',' + n.color.g + ',' + n.color.b + ',' + (n.alpha * 0.6) + ')');
+            grad.addColorStop(1, 'rgba(' + n.color.r + ',' + n.color.g + ',' + n.color.b + ',0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(n.x - n.radius, n.y - n.radius, n.radius * 2, n.radius * 2);
+        });
+
+        // ─── Stars / parallax with twinkle ─────────────────────
         stars.forEach(function (s) {
             if (s.laneTop !== player.laneTop) return;
-            ctx.globalAlpha = s.alpha;
+            var twinkle = 0.5 + 0.5 * Math.sin(globalTime * s.twinkleSpeed + s.twinklePhase);
+            var alpha = s.alpha * (0.5 + twinkle * 0.5);
+            ctx.globalAlpha = alpha;
             ctx.fillStyle = colors.text;
-            ctx.fillRect(s.x, s.y, s.size, s.size);
+            ctx.beginPath();
+            ctx.arc(s.x, s.y, s.size * 0.5, 0, Math.PI * 2);
+            ctx.fill();
+            // Subtle glow on bigger stars
+            if (s.size > 2) {
+                ctx.globalAlpha = alpha * 0.3;
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
         });
         ctx.globalAlpha = 1;
 
         // Ceiling band
         ctx.fillStyle = colors.bgSec;
         ctx.fillRect(0, ceilY, CANVAS_W, BAND_H);
-        // Ceiling edge
-        ctx.fillStyle = colors.muted;
-        ctx.fillRect(0, ceilY + BAND_H - 2, CANVAS_W, 2);
 
         // Floor band
         ctx.fillStyle = colors.bgSec;
         ctx.fillRect(0, floorY, CANVAS_W, BAND_H);
-        // Floor edge
-        ctx.fillStyle = colors.muted;
-        ctx.fillRect(0, floorY, CANVAS_W, 2);
+
+        // ─── Neon glow edges (floor and ceiling) ────────────────
+        var neonPulse = 0.7 + 0.3 * Math.sin(globalTime * 3);
+        var pColor = player.index === 0 ? colors.p1 : colors.p2;
+
+        // Ceiling edge neon glow
+        ctx.save();
+        ctx.shadowBlur = 15 * neonPulse;
+        ctx.shadowColor = pColor;
+        ctx.strokeStyle = pColor;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.7 + 0.3 * neonPulse;
+        ctx.beginPath();
+        ctx.moveTo(0, ceilY + BAND_H);
+        ctx.lineTo(CANVAS_W, ceilY + BAND_H);
+        ctx.stroke();
+        ctx.restore();
+
+        // Floor edge neon glow
+        ctx.save();
+        ctx.shadowBlur = 15 * neonPulse;
+        ctx.shadowColor = pColor;
+        ctx.strokeStyle = pColor;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.7 + 0.3 * neonPulse;
+        ctx.beginPath();
+        ctx.moveTo(0, floorY);
+        ctx.lineTo(CANVAS_W, floorY);
+        ctx.stroke();
+        ctx.restore();
 
         // Grid lines on bands (subtle)
         ctx.strokeStyle = colors.muted;
@@ -650,7 +903,7 @@
         }
         ctx.globalAlpha = 1;
 
-        // Obstacles
+        // ─── Obstacles (enhanced with gradient + glow) ──────────
         obstacles.forEach(function (o) {
             if (o.x + o.w < 0 || o.x > CANVAS_W) return;
             // Only draw obstacles in this lane
@@ -659,35 +912,24 @@
             if (o.spike) {
                 drawSpike(o);
             } else {
-                ctx.fillStyle = colors.danger;
-                ctx.fillRect(o.x, o.y, o.w, o.h);
-                // Highlight edge
-                ctx.fillStyle = 'rgba(255,255,255,0.15)';
-                ctx.fillRect(o.x, o.y, o.w, 2);
+                drawBlock(o);
             }
         });
 
-        // Coins
+        // ─── Shield pickups ─────────────────────────────────────
+        shields.forEach(function (s) {
+            if (s.collected) return;
+            if (s.x < -30 || s.x > CANVAS_W + 30) return;
+            if (s.laneTop !== player.laneTop) return;
+            drawShieldPickup(s);
+        });
+
+        // ─── Coins (with sparkle and glow) ──────────────────────
         coins.forEach(function (c) {
             if (c.collected) return;
             if (c.x < -20 || c.x > CANVAS_W + 20) return;
             if (c.y < player.laneTop || c.y > player.laneTop + player.laneH) return;
-
-            // Glow
-            ctx.beginPath();
-            ctx.arc(c.x, c.y, COIN_RADIUS + 3, 0, Math.PI * 2);
-            ctx.fillStyle = 'rgba(255,215,0,0.2)';
-            ctx.fill();
-            // Coin
-            ctx.beginPath();
-            ctx.arc(c.x, c.y, COIN_RADIUS, 0, Math.PI * 2);
-            ctx.fillStyle = '#ffd700';
-            ctx.fill();
-            // Inner circle
-            ctx.beginPath();
-            ctx.arc(c.x, c.y, COIN_RADIUS - 3, 0, Math.PI * 2);
-            ctx.fillStyle = '#ffec80';
-            ctx.fill();
+            drawCoin(c);
         });
 
         // Player
@@ -696,8 +938,54 @@
         }
     }
 
+    // ─── Draw Block Obstacle (metallic gradient + glow) ─────────
+    function drawBlock(o) {
+        ctx.save();
+        // Subtle danger glow
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = colors.danger;
+
+        // Metallic gradient fill
+        var grad = ctx.createLinearGradient(o.x, o.y, o.x + o.w, o.y + o.h);
+        var dc = hexToRgb(colors.danger);
+        grad.addColorStop(0, 'rgba(' + Math.min(dc.r + 60, 255) + ',' + Math.min(dc.g + 30, 255) + ',' + Math.min(dc.b + 30, 255) + ',1)');
+        grad.addColorStop(0.3, colors.danger);
+        grad.addColorStop(0.7, 'rgba(' + Math.max(dc.r - 40, 0) + ',' + Math.max(dc.g - 20, 0) + ',' + Math.max(dc.b - 20, 0) + ',1)');
+        grad.addColorStop(1, colors.danger);
+        ctx.fillStyle = grad;
+        ctx.fillRect(o.x, o.y, o.w, o.h);
+
+        // Metallic highlight edge (top)
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(255,255,255,0.25)';
+        ctx.fillRect(o.x, o.y, o.w, 2);
+        // Left edge highlight
+        ctx.fillStyle = 'rgba(255,255,255,0.12)';
+        ctx.fillRect(o.x, o.y, 2, o.h);
+
+        ctx.restore();
+    }
+
+    // ─── Draw Spike (metallic + glow) ───────────────────────────
     function drawSpike(o) {
-        ctx.fillStyle = colors.danger;
+        ctx.save();
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = colors.danger;
+
+        var dc = hexToRgb(colors.danger);
+
+        // Metallic gradient for spike
+        var grad;
+        if (o.surface === 'floor') {
+            grad = ctx.createLinearGradient(o.x + o.w / 2, o.y, o.x + o.w / 2, o.y + o.h);
+        } else {
+            grad = ctx.createLinearGradient(o.x + o.w / 2, o.y + o.h, o.x + o.w / 2, o.y);
+        }
+        grad.addColorStop(0, 'rgba(' + Math.min(dc.r + 80, 255) + ',' + Math.min(dc.g + 40, 255) + ',' + Math.min(dc.b + 40, 255) + ',1)');
+        grad.addColorStop(0.5, colors.danger);
+        grad.addColorStop(1, 'rgba(' + Math.max(dc.r - 50, 0) + ',' + Math.max(dc.g - 30, 0) + ',' + Math.max(dc.b - 30, 0) + ',1)');
+
+        ctx.fillStyle = grad;
         ctx.beginPath();
         if (o.surface === 'floor') {
             // Triangle pointing up
@@ -714,44 +1002,267 @@
         ctx.fill();
 
         // Edge highlight
-        ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
         ctx.lineWidth = 1;
         ctx.stroke();
+
+        ctx.restore();
     }
 
+    // ─── Draw Coin (sparkle + glow) ─────────────────────────────
+    function drawCoin(c) {
+        ctx.save();
+
+        // Outer glow
+        ctx.shadowBlur = 12;
+        ctx.shadowColor = '#ffd700';
+
+        // Base coin with gradient
+        var grad = ctx.createRadialGradient(c.x - 2, c.y - 2, 1, c.x, c.y, COIN_RADIUS);
+        grad.addColorStop(0, '#fff6cc');
+        grad.addColorStop(0.4, '#ffec80');
+        grad.addColorStop(1, '#daa520');
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, COIN_RADIUS, 0, Math.PI * 2);
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        // Inner circle
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, COIN_RADIUS - 3, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffec80';
+        ctx.fill();
+
+        // Rotating sparkle/shine highlight
+        var sparkAngle = globalTime * 3;
+        var shineX = c.x + Math.cos(sparkAngle) * (COIN_RADIUS * 0.4);
+        var shineY = c.y + Math.sin(sparkAngle) * (COIN_RADIUS * 0.4);
+        ctx.globalAlpha = 0.6 + 0.4 * Math.sin(globalTime * 5);
+        ctx.beginPath();
+        ctx.arc(shineX, shineY, 2, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+
+        // Cross sparkle lines
+        ctx.globalAlpha = 0.3 + 0.2 * Math.sin(globalTime * 5);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
+        var sparkLen = 3 + Math.sin(globalTime * 4) * 1.5;
+        ctx.beginPath();
+        ctx.moveTo(shineX - sparkLen, shineY);
+        ctx.lineTo(shineX + sparkLen, shineY);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(shineX, shineY - sparkLen);
+        ctx.lineTo(shineX, shineY + sparkLen);
+        ctx.stroke();
+
+        ctx.globalAlpha = 1;
+        ctx.restore();
+    }
+
+    // ─── Draw Shield Pickup ─────────────────────────────────────
+    function drawShieldPickup(s) {
+        var bob = Math.sin(globalTime * 3 + s.bobPhase) * 3;
+        var sy = s.y + bob;
+
+        ctx.save();
+
+        // Outer glow
+        ctx.shadowBlur = 18;
+        ctx.shadowColor = '#44ffcc';
+
+        // Bubble gradient
+        var grad = ctx.createRadialGradient(s.x - 2, sy - 2, 1, s.x, sy, SHIELD_RADIUS);
+        grad.addColorStop(0, 'rgba(170, 255, 238, 0.9)');
+        grad.addColorStop(0.6, 'rgba(68, 255, 204, 0.5)');
+        grad.addColorStop(1, 'rgba(68, 255, 204, 0.1)');
+        ctx.beginPath();
+        ctx.arc(s.x, sy, SHIELD_RADIUS, 0, Math.PI * 2);
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        // Inner bubble ring
+        ctx.strokeStyle = 'rgba(170, 255, 238, 0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // Shield icon: small "S" or cross inside
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('S', s.x, sy + 1);
+
+        // Pulsing ring
+        var ringPulse = 0.3 + 0.3 * Math.sin(globalTime * 4 + s.bobPhase);
+        ctx.globalAlpha = ringPulse;
+        ctx.beginPath();
+        ctx.arc(s.x, sy, SHIELD_RADIUS + 4 + Math.sin(globalTime * 4) * 2, 0, Math.PI * 2);
+        ctx.strokeStyle = '#44ffcc';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        ctx.globalAlpha = 1;
+        ctx.restore();
+    }
+
+    // ─── Draw Player (astronaut/robot character with gradient) ──
     function drawPlayer(p) {
         var pColor = p.index === 0 ? colors.p1 : colors.p2;
         var pLight = p.index === 0 ? colors.p1Light : colors.p2Light;
+        var pc = hexToRgb(pColor);
 
-        // Trail
+        // ─── Trail effect (last 6 positions with decreasing alpha) ──
         for (var i = 0; i < p.trail.length; i++) {
             var t = p.trail[i];
             var alpha = (1 - i / p.trail.length) * 0.35;
-            var size = PLAYER_SIZE * (1 - i / p.trail.length) * 0.6;
+            var size = PLAYER_SIZE * (1 - i / p.trail.length) * 0.5;
             ctx.globalAlpha = alpha;
             ctx.fillStyle = pColor;
-            ctx.fillRect(t.x - size / 2, t.y - size / 2, size, size);
+            ctx.beginPath();
+            ctx.arc(t.x + PLAYER_SIZE / 2, t.y, size / 2, 0, Math.PI * 2);
+            ctx.fill();
         }
         ctx.globalAlpha = 1;
 
-        // Player body
-        ctx.fillStyle = pColor;
-        ctx.fillRect(p.x, p.y, PLAYER_SIZE, PLAYER_SIZE);
+        var cx = p.x + PLAYER_SIZE / 2;
+        var cy = p.y + PLAYER_SIZE / 2;
+        var isUpsideDown = !p.onFloor;
 
-        // Inner highlight
-        ctx.fillStyle = pLight;
-        ctx.fillRect(p.x + 3, p.y + 3, PLAYER_SIZE - 6, PLAYER_SIZE - 6);
+        ctx.save();
 
-        // Eyes (adjust based on gravity direction)
+        // Translate to center and flip if upside down
+        ctx.translate(cx, cy);
+        if (isUpsideDown) {
+            ctx.scale(1, -1);
+        }
+
+        // ─── Body (rounded rectangle with gradient) ─────────────
+        var bodyW = PLAYER_SIZE - 4;
+        var bodyH = PLAYER_SIZE - 6;
+        var bodyX = -bodyW / 2;
+        var bodyY = -2;
+
+        var bodyGrad = ctx.createLinearGradient(bodyX, bodyY, bodyX + bodyW, bodyY + bodyH);
+        bodyGrad.addColorStop(0, pLight);
+        bodyGrad.addColorStop(0.5, pColor);
+        bodyGrad.addColorStop(1, 'rgba(' + Math.max(pc.r - 40, 0) + ',' + Math.max(pc.g - 40, 0) + ',' + Math.max(pc.b - 40, 0) + ',1)');
+        ctx.fillStyle = bodyGrad;
+        roundRect(ctx, bodyX, bodyY, bodyW, bodyH, 3);
+        ctx.fill();
+
+        // Body highlight
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        roundRect(ctx, bodyX + 1, bodyY + 1, bodyW - 2, bodyH / 2, 2);
+        ctx.fill();
+
+        // ─── Head (circle with gradient, like helmet visor) ─────
+        var headRadius = 6;
+        var headY = -6;
+
+        var headGrad = ctx.createRadialGradient(-1, headY - 1, 1, 0, headY, headRadius);
+        headGrad.addColorStop(0, pLight);
+        headGrad.addColorStop(1, pColor);
+        ctx.beginPath();
+        ctx.arc(0, headY, headRadius, 0, Math.PI * 2);
+        ctx.fillStyle = headGrad;
+        ctx.fill();
+
+        // Visor (dark reflective area)
+        ctx.beginPath();
+        ctx.arc(0, headY, headRadius - 2, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(10,10,30,0.7)';
+        ctx.fill();
+
+        // Visor shine
+        ctx.beginPath();
+        ctx.arc(-1.5, headY - 1.5, 2, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.fill();
+
+        // Eyes inside visor
         ctx.fillStyle = '#fff';
-        var eyeY = p.onFloor ? p.y + 6 : p.y + PLAYER_SIZE - 10;
-        ctx.fillRect(p.x + 5, eyeY, 4, 4);
-        ctx.fillRect(p.x + 13, eyeY, 4, 4);
+        ctx.fillRect(-3, headY - 2, 2.5, 2.5);
+        ctx.fillRect(1, headY - 2, 2.5, 2.5);
 
         // Pupils
         ctx.fillStyle = '#111';
-        ctx.fillRect(p.x + 7, eyeY + 1, 2, 2);
-        ctx.fillRect(p.x + 15, eyeY + 1, 2, 2);
+        ctx.fillRect(-2, headY - 1, 1.2, 1.2);
+        ctx.fillRect(2, headY - 1, 1.2, 1.2);
+
+        // ─── Limbs (small arms and legs) ────────────────────────
+        // Arms
+        ctx.strokeStyle = pColor;
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+
+        // Left arm
+        ctx.beginPath();
+        ctx.moveTo(bodyX - 1, bodyY + 3);
+        ctx.lineTo(bodyX - 5, bodyY + bodyH * 0.5 + Math.sin(globalTime * 8) * 2);
+        ctx.stroke();
+
+        // Right arm
+        ctx.beginPath();
+        ctx.moveTo(bodyX + bodyW + 1, bodyY + 3);
+        ctx.lineTo(bodyX + bodyW + 5, bodyY + bodyH * 0.5 - Math.sin(globalTime * 8) * 2);
+        ctx.stroke();
+
+        // Legs
+        var legPhase = Math.sin(globalTime * 10) * 2;
+        // Left leg
+        ctx.beginPath();
+        ctx.moveTo(-3, bodyY + bodyH);
+        ctx.lineTo(-4 + legPhase, bodyY + bodyH + 5);
+        ctx.stroke();
+        // Right leg
+        ctx.beginPath();
+        ctx.moveTo(3, bodyY + bodyH);
+        ctx.lineTo(4 - legPhase, bodyY + bodyH + 5);
+        ctx.stroke();
+
+        ctx.restore();
+
+        // ─── Shield bubble around player ────────────────────────
+        if (p.hasShield) {
+            ctx.save();
+            var shieldPulse = 0.3 + 0.15 * Math.sin(globalTime * 4);
+            var shieldR = PLAYER_SIZE * 0.85 + Math.sin(globalTime * 3) * 2;
+
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = '#44ffcc';
+
+            // Semi-transparent bubble
+            ctx.globalAlpha = shieldPulse;
+            var shieldGrad = ctx.createRadialGradient(cx - 3, cy - 3, 2, cx, cy, shieldR);
+            shieldGrad.addColorStop(0, 'rgba(170, 255, 238, 0.1)');
+            shieldGrad.addColorStop(0.7, 'rgba(68, 255, 204, 0.15)');
+            shieldGrad.addColorStop(1, 'rgba(68, 255, 204, 0.3)');
+            ctx.beginPath();
+            ctx.arc(cx, cy, shieldR, 0, Math.PI * 2);
+            ctx.fillStyle = shieldGrad;
+            ctx.fill();
+
+            // Bubble outline
+            ctx.globalAlpha = 0.5 + 0.3 * Math.sin(globalTime * 5);
+            ctx.strokeStyle = '#88ffdd';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
+            // Highlight gleam on bubble
+            ctx.globalAlpha = 0.4;
+            ctx.beginPath();
+            ctx.arc(cx - shieldR * 0.3, cy - shieldR * 0.3, shieldR * 0.25, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+
+            ctx.globalAlpha = 1;
+            ctx.restore();
+        }
 
         // Gravity indicator arrow
         ctx.fillStyle = pColor;
@@ -773,12 +1284,63 @@
         ctx.globalAlpha = 1;
     }
 
+    // ─── Utility: rounded rectangle path ────────────────────────
+    function roundRect(c, x, y, w, h, r) {
+        c.beginPath();
+        c.moveTo(x + r, y);
+        c.lineTo(x + w - r, y);
+        c.quadraticCurveTo(x + w, y, x + w, y + r);
+        c.lineTo(x + w, y + h - r);
+        c.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        c.lineTo(x + r, y + h);
+        c.quadraticCurveTo(x, y + h, x, y + h - r);
+        c.lineTo(x, y + r);
+        c.quadraticCurveTo(x, y, x + r, y);
+        c.closePath();
+    }
+
+    // ─── Draw Particles (enhanced with shapes) ──────────────────
     function drawParticles() {
         particles.forEach(function (pt) {
             var alpha = pt.life / pt.maxLife;
             ctx.globalAlpha = alpha;
-            ctx.fillStyle = pt.color;
-            ctx.fillRect(pt.x - pt.size / 2, pt.y - pt.size / 2, pt.size, pt.size);
+
+            if (pt.type === 'sparkle') {
+                // Draw as a small star/diamond shape
+                ctx.save();
+                ctx.translate(pt.x, pt.y);
+                ctx.rotate(globalTime * 5);
+                ctx.fillStyle = pt.color;
+                ctx.beginPath();
+                var s = pt.size;
+                ctx.moveTo(0, -s);
+                ctx.lineTo(s * 0.3, -s * 0.3);
+                ctx.lineTo(s, 0);
+                ctx.lineTo(s * 0.3, s * 0.3);
+                ctx.lineTo(0, s);
+                ctx.lineTo(-s * 0.3, s * 0.3);
+                ctx.lineTo(-s, 0);
+                ctx.lineTo(-s * 0.3, -s * 0.3);
+                ctx.closePath();
+                ctx.fill();
+                ctx.restore();
+            } else if (pt.type === 'spark') {
+                // Bright core spark - circle with glow
+                ctx.save();
+                ctx.shadowBlur = 6;
+                ctx.shadowColor = pt.color;
+                ctx.fillStyle = pt.color;
+                ctx.beginPath();
+                ctx.arc(pt.x, pt.y, pt.size * 0.6, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            } else {
+                // Default / explosion - slightly rounded squares
+                ctx.fillStyle = pt.color;
+                ctx.beginPath();
+                ctx.arc(pt.x, pt.y, pt.size * 0.5, 0, Math.PI * 2);
+                ctx.fill();
+            }
         });
         ctx.globalAlpha = 1;
     }
