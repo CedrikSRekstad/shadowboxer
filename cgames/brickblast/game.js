@@ -1083,20 +1083,50 @@
     // ─── Background Rendering ───
     function renderBackground() {
         var style = getComputedStyle(document.documentElement);
-        var bgColor = style.getPropertyValue('--canvas-bg').trim() || '#0d0d1a';
+        var isDark = document.documentElement.getAttribute('data-theme') !== 'light';
 
-        // Radial gradient background
-        var grad = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.7);
-        var bgRgb = hexToRgb(bgColor);
-        var centerColor = 'rgb(' + Math.min(255, bgRgb.r + 18) + ',' + Math.min(255, bgRgb.g + 18) + ',' + Math.min(255, bgRgb.b + 25) + ')';
-        grad.addColorStop(0, centerColor);
-        grad.addColorStop(1, bgColor);
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, W, H);
+        if (isDark) {
+            // Rich deep blue/purple gradient instead of near-black
+            var grad = ctx.createRadialGradient(W / 2, H * 0.4, 0, W / 2, H / 2, Math.max(W, H) * 0.8);
+            grad.addColorStop(0, '#1a1a3e');
+            grad.addColorStop(0.5, '#141430');
+            grad.addColorStop(1, '#0a0a1e');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, W, H);
 
-        // Subtle grid pattern
+            // Ambient glow behind brick area (soft colored light)
+            var ambientGlow = ctx.createRadialGradient(W / 2, BRICK_TOP_OFFSET + 60, 20, W / 2, BRICK_TOP_OFFSET + 80, W * 0.6);
+            ambientGlow.addColorStop(0, 'rgba(100, 60, 180, 0.12)');
+            ambientGlow.addColorStop(0.5, 'rgba(60, 40, 140, 0.06)');
+            ambientGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = ambientGlow;
+            ctx.fillRect(0, 0, W, H);
+
+            // Side vignette glow (subtle warm accents)
+            var leftGlow = ctx.createRadialGradient(0, H / 2, 0, 0, H / 2, W * 0.4);
+            leftGlow.addColorStop(0, 'rgba(0, 100, 200, 0.04)');
+            leftGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = leftGlow;
+            ctx.fillRect(0, 0, W, H);
+
+            var rightGlow = ctx.createRadialGradient(W, H / 2, 0, W, H / 2, W * 0.4);
+            rightGlow.addColorStop(0, 'rgba(200, 50, 100, 0.04)');
+            rightGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = rightGlow;
+            ctx.fillRect(0, 0, W, H);
+        } else {
+            // Light mode - clean soft background
+            var gradL = ctx.createRadialGradient(W / 2, H * 0.4, 0, W / 2, H / 2, Math.max(W, H) * 0.8);
+            gradL.addColorStop(0, '#f0f2ff');
+            gradL.addColorStop(0.5, '#e4e6f0');
+            gradL.addColorStop(1, '#d8dce8');
+            ctx.fillStyle = gradL;
+            ctx.fillRect(0, 0, W, H);
+        }
+
+        // Visible grid pattern
         ctx.save();
-        ctx.strokeStyle = 'rgba(255,255,255,0.025)';
+        ctx.strokeStyle = isDark ? 'rgba(120, 130, 200, 0.06)' : 'rgba(0, 0, 50, 0.05)';
         ctx.lineWidth = 1;
         var gridSize = 40;
         ctx.beginPath();
@@ -1110,6 +1140,18 @@
         }
         ctx.stroke();
         ctx.restore();
+
+        // Bottom zone glow (where paddle operates)
+        var paddleZone = ctx.createLinearGradient(0, H - 80, 0, H);
+        if (isDark) {
+            paddleZone.addColorStop(0, 'rgba(0, 0, 0, 0)');
+            paddleZone.addColorStop(1, 'rgba(30, 40, 80, 0.15)');
+        } else {
+            paddleZone.addColorStop(0, 'rgba(0, 0, 0, 0)');
+            paddleZone.addColorStop(1, 'rgba(0, 20, 60, 0.06)');
+        }
+        ctx.fillStyle = paddleZone;
+        ctx.fillRect(0, H - 80, W, 80);
     }
 
     function renderField(state, fieldX, fieldW) {
@@ -1156,16 +1198,23 @@
 
         ctx.save();
 
+        // Brick glow shadow (gives depth against background)
+        ctx.shadowColor = colors.fill;
+        ctx.shadowBlur = 6;
+
         // Glossy gradient fill (lighter at top, darker at bottom)
         var grad = ctx.createLinearGradient(x, y, x, y + h);
-        grad.addColorStop(0, lightenColor(colors.fill, 40));
-        grad.addColorStop(0.4, colors.fill);
-        grad.addColorStop(1, darkenColor(colors.fill, 40));
+        grad.addColorStop(0, lightenColor(colors.fill, 50));
+        grad.addColorStop(0.35, lightenColor(colors.fill, 10));
+        grad.addColorStop(1, darkenColor(colors.fill, 30));
 
         ctx.fillStyle = grad;
         ctx.beginPath();
         ctx.roundRect(x, y, w, h, r);
         ctx.fill();
+
+        // Reset shadow for detail drawing
+        ctx.shadowBlur = 0;
 
         // Top highlight stripe (glossy effect)
         ctx.fillStyle = 'rgba(255,255,255,0.25)';

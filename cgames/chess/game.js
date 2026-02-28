@@ -101,6 +101,22 @@
     var boardEl, turnEl, historyEl, capturedBlackListEl, capturedWhiteListEl;
     var boardSize = 0;
 
+    // Board flip for 2P (PC only)
+    function isMobileDevice() {
+        return ('ontouchstart' in window && window.innerWidth < 1024) || window.innerWidth < 768;
+    }
+
+    function updateBoardFlip() {
+        var container = document.querySelector('.board-container');
+        if (!container) return;
+        // Only flip in 2P mode on PC, when it's black's turn
+        if (gameMode === '2p' && !isMobileDevice() && turn === 'b' && !gameOver) {
+            container.classList.add('board-flipped');
+        } else {
+            container.classList.remove('board-flipped');
+        }
+    }
+
     // --- Initialization ---
     function initBoard() {
         board = [];
@@ -246,6 +262,7 @@
         updateTurnIndicator();
         renderCaptured();
         renderHistory();
+        updateBoardFlip();
     }
 
     function updateTurnIndicator() {

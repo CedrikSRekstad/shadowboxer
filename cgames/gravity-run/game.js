@@ -13,9 +13,11 @@
     var BASE_SPEED = 220;      // initial scroll speed px/s
     var SPEED_INCREASE = 4;    // px/s per second of play
     var MAX_SPEED = 650;
-    var OBSTACLE_GAP_MIN = 160;// min px between obstacles
-    var OBSTACLE_GAP_MAX = 320;
-    var SAFE_CORRIDOR = 80;    // guaranteed safe vertical gap
+    var OBSTACLE_GAP_MIN = 180;// min px between holes
+    var OBSTACLE_GAP_MAX = 360;
+    var HOLE_MIN_W = 45;       // minimum hole width
+    var HOLE_MAX_W_BASE = 65;  // base max hole width (grows with difficulty)
+    var HOLE_MAX_W_HARD = 110; // max hole width at max difficulty
 
     // Parallax star layers (3 layers at different speeds)
     var STAR_LAYERS = [
@@ -101,66 +103,43 @@
         };
     }
 
-    // ─── Obstacle Generation ────────────────────────────────────
+    // ─── Hole Generation (obstacles are holes in the floor/ceiling) ──
     function generateObstacle(x, laneTop, laneH) {
-        var floorY = laneTop + laneH - BAND_H;
-        var ceilY = laneTop + BAND_H;
-        var playH = laneH - BAND_H * 2;
-
-        // Difficulty scaling: more obstacles as distance grows
+        // Difficulty scaling
         var diff = Math.min(distance / 5000, 1); // 0..1
 
-        // Decide type: floor, ceiling, or both
-        var r = Math.random();
-        var type;
-        if (r < 0.35) type = 'floor';
-        else if (r < 0.7) type = 'ceiling';
-        else type = 'both';
+        // Hole width grows with difficulty
+        var maxW = HOLE_MAX_W_BASE + (HOLE_MAX_W_HARD - HOLE_MAX_W_BASE) * diff;
+        var w = HOLE_MIN_W + Math.random() * (maxW - HOLE_MIN_W);
 
-        var obs = [];
+        // Decide surface: floor or ceiling (never both at same x to keep it fair)
+        var surface = Math.random() < 0.5 ? 'floor' : 'ceiling';
 
-        if (type === 'floor' || type === 'both') {
-            var h = 20 + Math.random() * (20 + 30 * diff);
-            var w = 18 + Math.random() * 20;
-            var isSpike = Math.random() < 0.4;
-            obs.push({
-                x: x,
-                y: floorY - h,
-                w: w,
-                h: h,
-                spike: isSpike,
-                surface: 'floor'
-            });
-        }
+        var holes = [];
+        holes.push({
+            x: x,
+            w: w,
+            surface: surface,
+            laneTop: laneTop,
+            laneH: laneH
+        });
 
-        if (type === 'ceiling' || type === 'both') {
-            var h2 = 20 + Math.random() * (20 + 30 * diff);
-            var w2 = 18 + Math.random() * 20;
-            var isSpike2 = Math.random() < 0.4;
-            obs.push({
-                x: x + (type === 'both' ? 0 : 0),
-                y: ceilY,
+        // At higher difficulty, sometimes add a second hole on the other surface nearby
+        // This forces the player to flip twice quickly
+        if (diff > 0.35 && Math.random() < diff * 0.35) {
+            var otherSurface = surface === 'floor' ? 'ceiling' : 'floor';
+            var gap = 30 + Math.random() * 50; // space between holes for the player to flip
+            var w2 = HOLE_MIN_W + Math.random() * (maxW - HOLE_MIN_W) * 0.7;
+            holes.push({
+                x: x + w + gap,
                 w: w2,
-                h: h2,
-                spike: isSpike2,
-                surface: 'ceiling'
+                surface: otherSurface,
+                laneTop: laneTop,
+                laneH: laneH
             });
         }
 
-        // If both, ensure safe corridor between them
-        if (type === 'both' && obs.length === 2) {
-            var floorObs = obs[0];
-            var ceilObs = obs[1];
-            var gap = floorObs.y - (ceilObs.y + ceilObs.h);
-            if (gap < SAFE_CORRIDOR) {
-                var fix = (SAFE_CORRIDOR - gap) / 2 + 2;
-                floorObs.h -= fix;
-                floorObs.y += fix;
-                ceilObs.h -= fix;
-            }
-        }
-
-        return obs;
+        return holes;
     }
 
     function generateCoin(x, laneTop, laneH) {
@@ -648,6 +627,23 @@
         }
     }
 
+    // Check if a hole exists at the player's horizontal position on the given surface
+    function isHoleAtPosition(p, surface) {
+        var px = p.x;
+        var pw = PLAYER_SIZE;
+        var playerCenterX = px + pw / 2;
+        for (var i = 0; i < obstacles.length; i++) {
+            var hole = obstacles[i];
+            if (hole.surface !== surface) continue;
+            if (hole.laneTop !== p.laneTop) continue;
+            // Check if player center is over the hole (with small margin)
+            if (playerCenterX > hole.x + 6 && playerCenterX < hole.x + hole.w - 6) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     function updatePlayer(p, dt) {
         p.flipCooldown -= dt;
         if (p.flipCooldown < 0) p.flipCooldown = 0;
@@ -664,14 +660,35 @@
 
         p.y += p.vy * dt;
 
-        // Clamp to surfaces
+        // Check for holes at player position
+        var overFloorHole = isHoleAtPosition(p, 'floor');
+        var overCeilHole = isHoleAtPosition(p, 'ceiling');
+
+        // Clamp to surfaces (only if there's solid ground)
         if (p.y >= floorY) {
-            p.y = floorY;
-            p.vy = 0;
+            if (overFloorHole) {
+                // Falling into a floor hole! Let gravity pull player through
+                // Kill when player's center goes below the floor band
+                if (p.y + PLAYER_SIZE / 2 > p.laneTop + p.laneH - BAND_H / 2) {
+                    killPlayer(p);
+                    return;
+                }
+            } else {
+                p.y = floorY;
+                p.vy = 0;
+            }
         }
         if (p.y <= ceilY) {
-            p.y = ceilY;
-            p.vy = 0;
+            if (overCeilHole) {
+                // Falling into a ceiling hole!
+                if (p.y + PLAYER_SIZE / 2 < p.laneTop + BAND_H / 2) {
+                    killPlayer(p);
+                    return;
+                }
+            } else {
+                p.y = ceilY;
+                p.vy = 0;
+            }
         }
 
         // Trail
@@ -685,27 +702,32 @@
         var pw = PLAYER_SIZE;
         var ph = PLAYER_SIZE;
 
-        // Obstacle collision (AABB)
-        for (var i = 0; i < obstacles.length; i++) {
-            var o = obstacles[i];
-            // Only check obstacles in this player's lane
-            if (o.y < p.laneTop || o.y + o.h > p.laneTop + p.laneH + 1) continue;
-
-            if (px + pw > o.x + 3 && px < o.x + o.w - 3 &&
-                py + ph > o.y + 3 && py < o.y + o.h - 3) {
-                if (p.hasShield) {
-                    // Shield absorbs the hit
-                    p.hasShield = false;
-                    p.shieldTimer = 0;
-                    var pColor = p.index === 0 ? colors.p1 : colors.p2;
-                    spawnShieldPop(p.x + PLAYER_SIZE / 2, p.y + PLAYER_SIZE / 2, pColor);
-                    CGameAudio.play('score'); // reuse score sound for shield pop
-                    // Remove the obstacle that was hit
-                    obstacles.splice(i, 1);
-                    return;
+        // Hole collision is handled in updatePlayer (player falls through)
+        // Shield protects from one hole fall
+        var overHole = isHoleAtPosition(p, p.onFloor ? 'floor' : 'ceiling');
+        if (overHole && p.hasShield) {
+            var surfaceY = p.onFloor
+                ? (p.laneTop + p.laneH - BAND_H - PLAYER_SIZE)
+                : (p.laneTop + BAND_H);
+            var distToSurface = Math.abs(p.y - surfaceY);
+            // Only use shield if player is very close to the surface (about to fall in)
+            if (distToSurface < 3) {
+                p.hasShield = false;
+                p.shieldTimer = 0;
+                var pColor = p.index === 0 ? colors.p1 : colors.p2;
+                spawnShieldPop(p.x + PLAYER_SIZE / 2, p.y + PLAYER_SIZE / 2, pColor);
+                CGameAudio.play('score');
+                // Remove the hole so the player passes safely
+                for (var i = obstacles.length - 1; i >= 0; i--) {
+                    var hole = obstacles[i];
+                    if (hole.laneTop !== p.laneTop) continue;
+                    if (hole.surface !== (p.onFloor ? 'floor' : 'ceiling')) continue;
+                    var playerCenterX = px + pw / 2;
+                    if (playerCenterX > hole.x + 6 && playerCenterX < hole.x + hole.w - 6) {
+                        obstacles.splice(i, 1);
+                        break;
+                    }
                 }
-                killPlayer(p);
-                return;
             }
         }
 
@@ -847,74 +869,50 @@
         });
         ctx.globalAlpha = 1;
 
-        // Ceiling band
-        ctx.fillStyle = colors.bgSec;
-        ctx.fillRect(0, ceilY, CANVAS_W, BAND_H);
+        // ─── Collect holes for this lane ────────────────────────
+        var floorHoles = [];
+        var ceilHoles = [];
+        obstacles.forEach(function (o) {
+            if (o.laneTop !== player.laneTop) return;
+            if (o.x + o.w < -10 || o.x > CANVAS_W + 10) return;
+            if (o.surface === 'floor') floorHoles.push(o);
+            else ceilHoles.push(o);
+        });
+        floorHoles.sort(function (a, b) { return a.x - b.x; });
+        ceilHoles.sort(function (a, b) { return a.x - b.x; });
 
-        // Floor band
-        ctx.fillStyle = colors.bgSec;
-        ctx.fillRect(0, floorY, CANVAS_W, BAND_H);
-
-        // ─── Neon glow edges (floor and ceiling) ────────────────
-        var neonPulse = 0.7 + 0.3 * Math.sin(globalTime * 3);
         var pColor = player.index === 0 ? colors.p1 : colors.p2;
+        var neonPulse = 0.7 + 0.3 * Math.sin(globalTime * 3);
 
-        // Ceiling edge neon glow
-        ctx.save();
-        ctx.shadowBlur = 15 * neonPulse;
-        ctx.shadowColor = pColor;
-        ctx.strokeStyle = pColor;
-        ctx.lineWidth = 2;
-        ctx.globalAlpha = 0.7 + 0.3 * neonPulse;
-        ctx.beginPath();
-        ctx.moveTo(0, ceilY + BAND_H);
-        ctx.lineTo(CANVAS_W, ceilY + BAND_H);
-        ctx.stroke();
-        ctx.restore();
+        // ─── Draw ceiling band with holes ────────────────────────
+        drawSurfaceWithHoles(ceilY, BAND_H, ceilHoles, pColor, neonPulse, 'ceiling');
 
-        // Floor edge neon glow
-        ctx.save();
-        ctx.shadowBlur = 15 * neonPulse;
-        ctx.shadowColor = pColor;
-        ctx.strokeStyle = pColor;
-        ctx.lineWidth = 2;
-        ctx.globalAlpha = 0.7 + 0.3 * neonPulse;
-        ctx.beginPath();
-        ctx.moveTo(0, floorY);
-        ctx.lineTo(CANVAS_W, floorY);
-        ctx.stroke();
-        ctx.restore();
+        // ─── Draw floor band with holes ──────────────────────────
+        drawSurfaceWithHoles(floorY, BAND_H, floorHoles, pColor, neonPulse, 'floor');
 
-        // Grid lines on bands (subtle)
+        // ─── Grid lines on solid band sections ───────────────────
         ctx.strokeStyle = colors.muted;
         ctx.globalAlpha = 0.15;
         ctx.lineWidth = 1;
         var gridSpacing = 30;
         var gridOffset = (distance * 0.5) % gridSpacing;
         for (var gx = -gridOffset; gx < CANVAS_W; gx += gridSpacing) {
-            ctx.beginPath();
-            ctx.moveTo(gx, floorY);
-            ctx.lineTo(gx, floorY + BAND_H);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(gx, ceilY);
-            ctx.lineTo(gx, ceilY + BAND_H);
-            ctx.stroke();
+            // Floor grid (skip holes)
+            if (!isXInHoles(gx, floorHoles)) {
+                ctx.beginPath();
+                ctx.moveTo(gx, floorY);
+                ctx.lineTo(gx, floorY + BAND_H);
+                ctx.stroke();
+            }
+            // Ceiling grid (skip holes)
+            if (!isXInHoles(gx, ceilHoles)) {
+                ctx.beginPath();
+                ctx.moveTo(gx, ceilY);
+                ctx.lineTo(gx, ceilY + BAND_H);
+                ctx.stroke();
+            }
         }
         ctx.globalAlpha = 1;
-
-        // ─── Obstacles (enhanced with gradient + glow) ──────────
-        obstacles.forEach(function (o) {
-            if (o.x + o.w < 0 || o.x > CANVAS_W) return;
-            // Only draw obstacles in this lane
-            if (o.y < player.laneTop - 1 || o.y + o.h > player.laneTop + player.laneH + 1) return;
-
-            if (o.spike) {
-                drawSpike(o);
-            } else {
-                drawBlock(o);
-            }
-        });
 
         // ─── Shield pickups ─────────────────────────────────────
         shields.forEach(function (s) {
@@ -938,73 +936,167 @@
         }
     }
 
-    // ─── Draw Block Obstacle (metallic gradient + glow) ─────────
-    function drawBlock(o) {
+    // ─── Helper: check if an x position is inside any hole ─────
+    function isXInHoles(x, holes) {
+        for (var i = 0; i < holes.length; i++) {
+            if (x >= holes[i].x && x <= holes[i].x + holes[i].w) return true;
+        }
+        return false;
+    }
+
+    // ─── Draw surface (floor or ceiling) with holes cut out ─────
+    function drawSurfaceWithHoles(bandY, bandH, holes, pColor, neonPulse, surfaceType) {
         ctx.save();
-        // Subtle danger glow
-        ctx.shadowBlur = 8;
-        ctx.shadowColor = colors.danger;
 
-        // Metallic gradient fill
-        var grad = ctx.createLinearGradient(o.x, o.y, o.x + o.w, o.y + o.h);
-        var dc = hexToRgb(colors.danger);
-        grad.addColorStop(0, 'rgba(' + Math.min(dc.r + 60, 255) + ',' + Math.min(dc.g + 30, 255) + ',' + Math.min(dc.b + 30, 255) + ',1)');
-        grad.addColorStop(0.3, colors.danger);
-        grad.addColorStop(0.7, 'rgba(' + Math.max(dc.r - 40, 0) + ',' + Math.max(dc.g - 20, 0) + ',' + Math.max(dc.b - 20, 0) + ',1)');
-        grad.addColorStop(1, colors.danger);
-        ctx.fillStyle = grad;
-        ctx.fillRect(o.x, o.y, o.w, o.h);
+        // Draw solid segments of the band (between holes)
+        ctx.fillStyle = colors.bgSec;
+        var startX = 0;
+        for (var i = 0; i < holes.length; i++) {
+            var hole = holes[i];
+            var holeLeft = Math.max(hole.x, 0);
+            if (holeLeft > startX) {
+                ctx.fillRect(startX, bandY, holeLeft - startX, bandH);
+            }
+            startX = Math.min(hole.x + hole.w, CANVAS_W);
+        }
+        if (startX < CANVAS_W) {
+            ctx.fillRect(startX, bandY, CANVAS_W - startX, bandH);
+        }
 
-        // Metallic highlight edge (top)
+        // Draw neon edge on solid segments (inner edge facing play area)
+        var edgeY = surfaceType === 'floor' ? bandY : bandY + bandH;
+        ctx.shadowBlur = 15 * neonPulse;
+        ctx.shadowColor = pColor;
+        ctx.strokeStyle = pColor;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.7 + 0.3 * neonPulse;
+
+        var segStart = 0;
+        for (var j = 0; j < holes.length; j++) {
+            var h = holes[j];
+            var hl = Math.max(h.x, 0);
+            if (hl > segStart) {
+                ctx.beginPath();
+                ctx.moveTo(segStart, edgeY);
+                ctx.lineTo(hl, edgeY);
+                ctx.stroke();
+            }
+            segStart = Math.min(h.x + h.w, CANVAS_W);
+        }
+        if (segStart < CANVAS_W) {
+            ctx.beginPath();
+            ctx.moveTo(segStart, edgeY);
+            ctx.lineTo(CANVAS_W, edgeY);
+            ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
         ctx.shadowBlur = 0;
-        ctx.fillStyle = 'rgba(255,255,255,0.25)';
-        ctx.fillRect(o.x, o.y, o.w, 2);
-        // Left edge highlight
-        ctx.fillStyle = 'rgba(255,255,255,0.12)';
-        ctx.fillRect(o.x, o.y, 2, o.h);
+
+        // Draw each hole
+        for (var k = 0; k < holes.length; k++) {
+            drawHole(holes[k], bandY, bandH, surfaceType, pColor);
+        }
 
         ctx.restore();
     }
 
-    // ─── Draw Spike (metallic + glow) ───────────────────────────
-    function drawSpike(o) {
+    // ─── Draw a single hole (pit visual) ─────────────────────────
+    function drawHole(hole, bandY, bandH, surfaceType, pColor) {
+        var hx = hole.x;
+        var hw = hole.w;
+
         ctx.save();
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = colors.danger;
 
+        // Dark pit interior (darker than background)
+        var pitGrad;
+        if (surfaceType === 'floor') {
+            pitGrad = ctx.createLinearGradient(hx, bandY, hx, bandY + bandH);
+            pitGrad.addColorStop(0, 'rgba(0,0,0,0.3)');
+            pitGrad.addColorStop(0.5, 'rgba(0,0,0,0.6)');
+            pitGrad.addColorStop(1, 'rgba(0,0,0,0.8)');
+        } else {
+            pitGrad = ctx.createLinearGradient(hx, bandY + bandH, hx, bandY);
+            pitGrad.addColorStop(0, 'rgba(0,0,0,0.3)');
+            pitGrad.addColorStop(0.5, 'rgba(0,0,0,0.6)');
+            pitGrad.addColorStop(1, 'rgba(0,0,0,0.8)');
+        }
+        ctx.fillStyle = pitGrad;
+        ctx.fillRect(hx, bandY, hw, bandH);
+
+        // Inner depth lines (gives illusion of depth)
         var dc = hexToRgb(colors.danger);
-
-        // Metallic gradient for spike
-        var grad;
-        if (o.surface === 'floor') {
-            grad = ctx.createLinearGradient(o.x + o.w / 2, o.y, o.x + o.w / 2, o.y + o.h);
-        } else {
-            grad = ctx.createLinearGradient(o.x + o.w / 2, o.y + o.h, o.x + o.w / 2, o.y);
-        }
-        grad.addColorStop(0, 'rgba(' + Math.min(dc.r + 80, 255) + ',' + Math.min(dc.g + 40, 255) + ',' + Math.min(dc.b + 40, 255) + ',1)');
-        grad.addColorStop(0.5, colors.danger);
-        grad.addColorStop(1, 'rgba(' + Math.max(dc.r - 50, 0) + ',' + Math.max(dc.g - 30, 0) + ',' + Math.max(dc.b - 30, 0) + ',1)');
-
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        if (o.surface === 'floor') {
-            // Triangle pointing up
-            ctx.moveTo(o.x, o.y + o.h);
-            ctx.lineTo(o.x + o.w / 2, o.y);
-            ctx.lineTo(o.x + o.w, o.y + o.h);
-        } else {
-            // Triangle pointing down
-            ctx.moveTo(o.x, o.y);
-            ctx.lineTo(o.x + o.w / 2, o.y + o.h);
-            ctx.lineTo(o.x + o.w, o.y);
-        }
-        ctx.closePath();
-        ctx.fill();
-
-        // Edge highlight
-        ctx.shadowBlur = 0;
-        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+        ctx.strokeStyle = 'rgba(' + dc.r + ',' + dc.g + ',' + dc.b + ',0.15)';
         ctx.lineWidth = 1;
+        var depthLines = 3;
+        for (var d = 1; d <= depthLines; d++) {
+            var inset = d * 4;
+            ctx.beginPath();
+            if (surfaceType === 'floor') {
+                ctx.moveTo(hx + inset, bandY + d * (bandH / (depthLines + 1)));
+                ctx.lineTo(hx + hw - inset, bandY + d * (bandH / (depthLines + 1)));
+            } else {
+                ctx.moveTo(hx + inset, bandY + bandH - d * (bandH / (depthLines + 1)));
+                ctx.lineTo(hx + hw - inset, bandY + bandH - d * (bandH / (depthLines + 1)));
+            }
+            ctx.stroke();
+        }
+
+        // Danger glow at hole edges (red/orange glow)
+        var dangerPulse = 0.5 + 0.5 * Math.sin(globalTime * 4);
+
+        // Left edge glow
+        var leftGlow = ctx.createLinearGradient(hx - 8, 0, hx + 12, 0);
+        leftGlow.addColorStop(0, 'rgba(' + dc.r + ',' + dc.g + ',' + dc.b + ',0)');
+        leftGlow.addColorStop(0.4, 'rgba(' + dc.r + ',' + dc.g + ',' + dc.b + ',' + (0.4 * dangerPulse) + ')');
+        leftGlow.addColorStop(1, 'rgba(' + dc.r + ',' + dc.g + ',' + dc.b + ',0)');
+        ctx.fillStyle = leftGlow;
+        ctx.fillRect(hx - 8, bandY, 20, bandH);
+
+        // Right edge glow
+        var rightGlow = ctx.createLinearGradient(hx + hw - 12, 0, hx + hw + 8, 0);
+        rightGlow.addColorStop(0, 'rgba(' + dc.r + ',' + dc.g + ',' + dc.b + ',0)');
+        rightGlow.addColorStop(0.6, 'rgba(' + dc.r + ',' + dc.g + ',' + dc.b + ',' + (0.4 * dangerPulse) + ')');
+        rightGlow.addColorStop(1, 'rgba(' + dc.r + ',' + dc.g + ',' + dc.b + ',0)');
+        ctx.fillStyle = rightGlow;
+        ctx.fillRect(hx + hw - 12, bandY, 20, bandH);
+
+        // Warning stripes at hole edges (diagonal hazard lines)
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(hx, bandY, hw, bandH);
+        ctx.clip();
+
+        ctx.strokeStyle = 'rgba(' + dc.r + ',' + dc.g + ',' + dc.b + ',' + (0.25 + 0.1 * dangerPulse) + ')';
+        ctx.lineWidth = 2;
+        var stripeSpacing = 8;
+        // Left edge stripes
+        for (var s = -bandH; s < bandH + 12; s += stripeSpacing) {
+            ctx.beginPath();
+            ctx.moveTo(hx, bandY + s);
+            ctx.lineTo(hx + 12, bandY + s + 12);
+            ctx.stroke();
+        }
+        // Right edge stripes
+        for (var s2 = -bandH; s2 < bandH + 12; s2 += stripeSpacing) {
+            ctx.beginPath();
+            ctx.moveTo(hx + hw, bandY + s2);
+            ctx.lineTo(hx + hw - 12, bandY + s2 + 12);
+            ctx.stroke();
+        }
+        ctx.restore();
+
+        // Vertical edge lines (solid edges of the pit)
+        ctx.strokeStyle = 'rgba(' + dc.r + ',' + dc.g + ',' + dc.b + ',0.6)';
+        ctx.lineWidth = 2;
+        // Left wall
+        ctx.beginPath();
+        ctx.moveTo(hx, bandY);
+        ctx.lineTo(hx, bandY + bandH);
+        ctx.stroke();
+        // Right wall
+        ctx.beginPath();
+        ctx.moveTo(hx + hw, bandY);
+        ctx.lineTo(hx + hw, bandY + bandH);
         ctx.stroke();
 
         ctx.restore();

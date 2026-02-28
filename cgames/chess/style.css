@@ -155,6 +155,34 @@
     flex-direction: column;
     align-items: center;
     position: relative;
+    transition: transform 0.6s ease;
+}
+
+/* 2P board flip (PC only) - rotates the board for the other player */
+.board-container.board-flipped {
+    transform: rotate(180deg);
+}
+
+/* Counter-rotate pieces, labels, and indicators so they stay readable when flipped */
+.board-flipped .piece {
+    display: inline-block;
+    transform: rotate(180deg);
+}
+
+.board-flipped .rank-label {
+    transform: rotate(180deg);
+}
+
+.board-flipped .file-label {
+    transform: rotate(180deg);
+}
+
+.board-flipped .move-dot {
+    transform: rotate(180deg);
+}
+
+.board-flipped .capture-ring {
+    transform: rotate(180deg);
 }
 
 /* Rank labels (1-8 on left side) */

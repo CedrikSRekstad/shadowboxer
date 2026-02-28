@@ -33,6 +33,13 @@
     var BUMP_COOLDOWN = 0.3;
     var SPEED_UP_RATE = 10;
 
+    // Drift constants
+    var DRIFT_ACCEL = 8;           // how fast lateral vel builds (lower = more drift)
+    var DRIFT_DECAY = 0.92;        // lateral vel decay when NOT steering (per-frame at 60fps)
+    var DRIFT_THRESHOLD = 60;      // speed threshold to show drift visuals
+    var DRIFT_ANGLE_MULT = 0.0025; // how much lateral vel affects visual angle
+    var DRIFT_SMOKE_INTERVAL = 0.04; // seconds between drift smoke puffs
+
     // Boost pad constants
     var BOOST_PAD_W = 30;
     var BOOST_PAD_H = 50;
@@ -324,6 +331,10 @@
             tireMarks: [],
             spinTimer: 0,
             spinDir: 0,
+            // Drift
+            lateralVel: 0,
+            drifting: false,
+            driftSmokeCooldown: 0,
             // New visual/gameplay properties
             hits: 0,
             flashTimer: 0,
@@ -836,8 +847,27 @@
             player.worldY -= player.speed * steerPenalty * dt;
             player.y = player.worldY;
 
-            // Lateral movement from steering
-            player.x += player.steer * STEER_SPEED * dt;
+            // ─── Drift-based lateral movement ───
+            // Target lateral velocity from steering input
+            var targetLatVel = player.steer * STEER_SPEED * 1.2;
+
+            // Lateral velocity accelerates toward target (not instant)
+            var lerpFactor = 1 - Math.pow(1 / (DRIFT_ACCEL + 1), dt * 60);
+            player.lateralVel += (targetLatVel - player.lateralVel) * lerpFactor;
+
+            // When NOT steering, lateral velocity decays (car straightens out)
+            if (Math.abs(player.steer) < 0.1) {
+                player.lateralVel *= Math.pow(DRIFT_DECAY, dt * 60);
+            }
+
+            // Kill tiny residual drift
+            if (Math.abs(player.lateralVel) < 2) player.lateralVel = 0;
+
+            // Apply drift movement
+            player.x += player.lateralVel * dt;
+
+            // Determine drift state (for visuals)
+            player.drifting = Math.abs(player.lateralVel) > DRIFT_THRESHOLD;
 
             // Apply bump velocity (decays over time)
             player.x += player.vx * dt;
@@ -854,14 +884,47 @@
                 player.spinTimer -= dt;
                 player.angle = player.spinDir * player.spinTimer * 3;
             } else {
-                // Natural lean into turns
-                player.angle = player.steer * 0.15;
+                // Drift angle: the car rotates more during drift
+                var driftAngle = player.lateralVel * DRIFT_ANGLE_MULT;
+                // Clamp max visual rotation
+                if (driftAngle > 0.4) driftAngle = 0.4;
+                if (driftAngle < -0.4) driftAngle = -0.4;
+                player.angle = driftAngle;
             }
 
-            // Tire marks when bumped hard
-            if (Math.abs(player.vx) > 100) {
-                player.tireMarks.push({ x: player.x - 7, y: player.worldY + CAR_H / 2, alpha: 0.5 });
-                player.tireMarks.push({ x: player.x + 7, y: player.worldY + CAR_H / 2, alpha: 0.5 });
+            // Tire marks when drifting or bumped hard
+            if (player.drifting || Math.abs(player.vx) > 100) {
+                player.tireMarks.push({ x: player.x - 7, y: player.worldY + CAR_H / 2, alpha: 0.6 });
+                player.tireMarks.push({ x: player.x + 7, y: player.worldY + CAR_H / 2, alpha: 0.6 });
+            }
+
+            // Drift smoke (tire smoke when drifting)
+            player.driftSmokeCooldown -= dt;
+            if (player.drifting && player.driftSmokeCooldown <= 0) {
+                player.driftSmokeCooldown = DRIFT_SMOKE_INTERVAL;
+                // Spawn smoke at rear tires
+                var rearY = player.worldY + CAR_H / 2 + 1;
+                var smokeDir = player.lateralVel > 0 ? -1 : 1;
+                smokeParticles.push({
+                    x: player.x - 8 + (Math.random() - 0.5) * 4,
+                    y: rearY,
+                    vx: smokeDir * (10 + Math.random() * 20),
+                    vy: (Math.random() - 0.5) * 8,
+                    life: 0.5 + Math.random() * 0.3,
+                    maxLife: 0.5 + Math.random() * 0.3,
+                    r: 3 + Math.random() * 4,
+                    alpha: 0.35
+                });
+                smokeParticles.push({
+                    x: player.x + 8 + (Math.random() - 0.5) * 4,
+                    y: rearY,
+                    vx: smokeDir * (10 + Math.random() * 20),
+                    vy: (Math.random() - 0.5) * 8,
+                    life: 0.5 + Math.random() * 0.3,
+                    maxLife: 0.5 + Math.random() * 0.3,
+                    r: 3 + Math.random() * 4,
+                    alpha: 0.35
+                });
             }
 
             // Exhaust smoke
