@@ -21,12 +21,12 @@
     var ROAD_SEGMENT_LEN = 4;
     var ROAD_BASE_WIDTH = 190;
     var ROAD_MIN_WIDTH = 90;
-    var CAR_SPEED = 210;
+    var CAR_SPEED = 140;
     var STEER_SPEED = 200;
     var CAR_W = 24;   // ~20% bigger (was 20)
     var CAR_H = 43;   // ~20% bigger (was 36)
     var ROAD_VISIBLE_AHEAD = 600;
-    var ROAD_CURVE_STRENGTH = 0.004;
+    var ROAD_CURVE_STRENGTH = 0.008;
     var NARROW_RATE = 0.012;
     var WIN_SCORE = 2;
     var BUMP_FORCE = 280;
@@ -231,10 +231,10 @@
             roadCurveTimer -= ROAD_SEGMENT_LEN;
             if (roadCurveTimer <= 0) {
                 roadCurveTarget = (Math.random() - 0.5) * 2 * ROAD_CURVE_STRENGTH;
-                roadCurveTimer = 100 + Math.random() * 300;
+                roadCurveTimer = 60 + Math.random() * 190;
             }
 
-            roadCurve += (roadCurveTarget - roadCurve) * 0.05;
+            roadCurve += (roadCurveTarget - roadCurve) * 0.08;
             roadHalfWidth = Math.max(ROAD_MIN_WIDTH, ROAD_BASE_WIDTH - roadDistance * NARROW_RATE);
 
             lastX += roadCurve * ROAD_SEGMENT_LEN * 100;

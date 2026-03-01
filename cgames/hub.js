@@ -588,7 +588,7 @@
                 ctx.fillText('\u2655', 43, 70);
                 break;
 
-            case 'shadow-fighter':
+            case 'stickman-fighter':
                 ctx.fillStyle = fg + '12';
                 ctx.fillRect(0, h - 10, w, 10);
                 // P1
