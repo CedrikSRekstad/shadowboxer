@@ -589,6 +589,49 @@
                 break;
 
             case 'stickman-fighter':
+                // Ground with gap
+                ctx.fillStyle = fg + '12';
+                ctx.fillRect(0, h - 10, 50, 10);
+                ctx.fillRect(70, h - 10, w - 70, 10);
+                // Floating platform
+                ctx.fillStyle = fg + '18';
+                ctx.fillRect(30, h - 45, 50, 5);
+                // P1 on platform
+                ctx.fillStyle = p1;
+                ctx.fillRect(40, h - 72, 4, 22);
+                ctx.beginPath(); ctx.arc(42, h - 78, 5, 0, Math.PI * 2); ctx.fill();
+                ctx.fillRect(44, h - 70, 12, 3);
+                ctx.fillRect(38, h - 50, 3, 7);
+                ctx.fillRect(43, h - 50, 3, 7);
+                // P2 on ground
+                ctx.fillStyle = p2;
+                ctx.fillRect(85, h - 32, 4, 18);
+                ctx.beginPath(); ctx.arc(87, h - 37, 5, 0, Math.PI * 2); ctx.fill();
+                ctx.fillRect(75, h - 30, 10, 3);
+                ctx.fillRect(84, h - 14, 3, 7);
+                ctx.fillRect(88, h - 14, 3, 7);
+                // Spikes in gap
+                ctx.fillStyle = '#ff4466';
+                for (var sp = 52; sp < 68; sp += 6) {
+                    ctx.beginPath();
+                    ctx.moveTo(sp, h);
+                    ctx.lineTo(sp + 3, h - 8);
+                    ctx.lineTo(sp + 6, h);
+                    ctx.fill();
+                }
+                // Scroll arrow
+                ctx.fillStyle = accent;
+                ctx.shadowColor = accent;
+                ctx.shadowBlur = 4;
+                ctx.beginPath();
+                ctx.moveTo(w - 12, h / 2 - 5);
+                ctx.lineTo(w - 5, h / 2);
+                ctx.lineTo(w - 12, h / 2 + 5);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                break;
+
+            case 'shadow-fighter':
                 ctx.fillStyle = fg + '12';
                 ctx.fillRect(0, h - 10, w, 10);
                 // P1
